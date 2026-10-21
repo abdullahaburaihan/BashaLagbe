@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
+import 'package:basha_lagbe/post_property_screen.dart';
 
 void main() {
   runApp(const BashaLagbeApp());
@@ -729,6 +730,54 @@ class _MainShellState extends State<MainShell> {
   final Set<String> _favouriteIds = <String>{};
   int _selectedIndex = 0;
 
+  final List<SubmittedListing> _myListings = [
+    SubmittedListing(
+      id: 'BL-8021',
+      property: const Property(
+        id: 'demo-my-1',
+        title: 'Lakeview Corner Bachelor Room',
+        area: 'Dhanmondi, Dhaka',
+        landmark: 'Near Dhanmondi Lake Park',
+        fullAddress: 'Road 8/A, Dhanmondi R/A, Dhaka',
+        rentPerMonth: 9500,
+        depositAmount: 9500,
+        sizeSqFt: 380,
+        floorLevel: '3rd Floor',
+        balconies: 1,
+        type: PropertyType.bachelor,
+        bedrooms: 1,
+        bathrooms: 1,
+        availability: 'Available now',
+        availableNow: true,
+        icon: Icons.home_work,
+        gradientStart: Color(0xFF3AA6A0),
+        gradientEnd: Color(0xFF176B66),
+        description:
+            'Peaceful bachelor room with private lake-facing balcony, attached bath, and quiet study environment.',
+        facilities: [
+          'Attached Bathroom',
+          'Lake-facing Balcony',
+          'High-speed Wi-Fi',
+          '24/7 Security Guard',
+        ],
+        photos: [
+          PropertyPhoto(
+            label: 'Bachelor Room',
+            imageUrl:
+                'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
+          ),
+          PropertyPhoto(
+            label: 'Study Desk Area',
+            imageUrl:
+                'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
+          ),
+        ],
+      ),
+      status: ListingStatus.pendingReview,
+      submittedAt: DateTime(2026, 10, 21, 14, 30),
+    ),
+  ];
+
   void _toggleFavourite(String id) {
     setState(() {
       if (!_favouriteIds.add(id)) {
@@ -738,11 +787,6 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onDestinationSelected(int index) {
-    if (index == 2) {
-      showFriendlyMessage(context, 'The Post Property feature is coming soon!');
-      return;
-    }
-
     if (index == 3) {
       showFriendlyMessage(context, 'The Profile feature is coming soon!');
       return;
@@ -751,6 +795,40 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  Widget _buildBody() {
+    switch (_selectedIndex) {
+      case 0:
+        return HomeScreen(
+          favouriteIds: _favouriteIds,
+          onToggleFavourite: _toggleFavourite,
+        );
+      case 1:
+        return SavedScreen(
+          favouriteIds: _favouriteIds,
+          onToggleFavourite: _toggleFavourite,
+        );
+      case 2:
+        return PostPropertyScreen(
+          myListings: _myListings,
+          onListingSubmitted: (newListing) {
+            setState(() {
+              _myListings.insert(0, newListing);
+            });
+          },
+          onListingDeleted: (id) {
+            setState(() {
+              _myListings.removeWhere((item) => item.id == id);
+            });
+          },
+        );
+      default:
+        return HomeScreen(
+          favouriteIds: _favouriteIds,
+          onToggleFavourite: _toggleFavourite,
+        );
+    }
   }
 
   @override
@@ -762,15 +840,7 @@ class _MainShellState extends State<MainShell> {
         statusBarColor: Colors.transparent,
       ),
       child: Scaffold(
-        body: _selectedIndex == 0
-            ? HomeScreen(
-                favouriteIds: _favouriteIds,
-                onToggleFavourite: _toggleFavourite,
-              )
-            : SavedScreen(
-                favouriteIds: _favouriteIds,
-                onToggleFavourite: _toggleFavourite,
-              ),
+        body: _buildBody(),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
           onDestinationSelected: _onDestinationSelected,

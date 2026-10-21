@@ -1,30 +1,25 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:basha_lagbe/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('BashaLagbeApp smoke test and navigation to Post tab', (WidgetTester tester) async {
     await tester.pumpWidget(const BashaLagbeApp());
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify Home tab elements
+    expect(find.text('BashaLagbe'), findsWidgets);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Saved'), findsOneWidget);
+    expect(find.text('Post'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Tap the 'Post' tab on the bottom navigation bar
+    await tester.tap(find.text('Post'));
+    await tester.pumpAndSettle();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify Post Property Screen is rendered
+    expect(find.text('Post a Rental Property'), findsOneWidget);
+    expect(find.text('Property Wizard'), findsOneWidget);
+    expect(find.text('My Listings'), findsOneWidget);
+    expect(find.text('Basic Information'), findsOneWidget);
   });
 }
