@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
+import 'package:basha_lagbe/services/firestore_service.dart';
 
 void main() {
   testWidgets('BashaLagbeApp smoke test and navigation across tabs', (WidgetTester tester) async {
@@ -165,6 +166,52 @@ void main() {
     expect(
       AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'network-request-failed')),
       contains('Network error'),
+    );
+  });
+
+  test('FirestoreService initialization and error translation tests', () {
+    // 1. Verify collection constants
+    expect(FirestoreService.usersCollection, 'users');
+    expect(FirestoreService.propertiesCollection, 'properties');
+    expect(FirestoreService.rentalRequestsCollection, 'rental_requests');
+
+    // 2. In uninitialized headless test environment, accessing firestore throws a clear exception
+    final service = FirestoreService.instance;
+    if (!service.isFirebaseAvailable) {
+      expect(
+        () => service.firestore,
+        throwsA(isA<FirebaseException>().having(
+          (e) => e.code,
+          'code',
+          'app-not-initialized',
+        )),
+      );
+    }
+
+    // 3. Verify error message translation
+    expect(
+      FirestoreService.getFriendlyErrorMessage(
+        FirebaseException(plugin: 'cloud_firestore', code: 'permission-denied'),
+      ),
+      contains('permission'),
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(
+        FirebaseException(plugin: 'cloud_firestore', code: 'unavailable'),
+      ),
+      contains('unavailable'),
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(
+        FirebaseException(plugin: 'cloud_firestore', code: 'unauthenticated'),
+      ),
+      contains('signed in'),
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(
+        FirebaseException(plugin: 'cloud_firestore', code: 'not-found'),
+      ),
+      contains('not found'),
     );
   });
 }
