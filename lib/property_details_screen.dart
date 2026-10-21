@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:basha_lagbe/main.dart';
 
@@ -67,24 +68,32 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     return [
       PropertyPhoto(
         label: 'Main Living Space',
+        imageUrl:
+            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
         icon: widget.property.icon,
         gradientStart: widget.property.gradientStart,
         gradientEnd: widget.property.gradientEnd,
       ),
       PropertyPhoto(
         label: 'Bedrooms',
+        imageUrl:
+            'https://images.unsplash.com/photo-1540518614846-7ede433c4550?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bed_outlined,
         gradientStart: widget.property.gradientStart.withAlpha(200),
         gradientEnd: widget.property.gradientEnd.withAlpha(230),
       ),
       PropertyPhoto(
         label: 'Washroom & Kitchen',
+        imageUrl:
+            'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.kitchen_outlined,
         gradientStart: widget.property.gradientEnd,
         gradientEnd: widget.property.gradientStart,
       ),
       PropertyPhoto(
         label: 'Balcony & View',
+        imageUrl:
+            'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.balcony_outlined,
         gradientStart: widget.property.gradientStart,
         gradientEnd: widget.property.gradientEnd,
@@ -187,43 +196,119 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 children: [
-                  // Photo ViewPager
-                  PageView.builder(
-                    controller: _pageController,
-                    itemCount: photos.length,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _currentPhotoIndex = index;
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      final photo = photos[index];
-                      return _GalleryPhotoItem(
-                        photo: photo,
-                        defaultStart: property.gradientStart,
-                        defaultEnd: property.gradientEnd,
-                      );
-                    },
+                  // 1. Photo ViewPager with mouse & touch drag support
+                  Positioned.fill(
+                    child: ScrollConfiguration(
+                      behavior: const MaterialScrollBehavior().copyWith(
+                        dragDevices: {
+                          PointerDeviceKind.touch,
+                          PointerDeviceKind.mouse,
+                          PointerDeviceKind.stylus,
+                          PointerDeviceKind.trackpad,
+                        },
+                      ),
+                      child: PageView.builder(
+                        controller: _pageController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: photos.length,
+                        onPageChanged: (index) {
+                          setState(() {
+                            _currentPhotoIndex = index;
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final photo = photos[index];
+                          return _GalleryPhotoItem(
+                            photo: photo,
+                            defaultStart: property.gradientStart,
+                            defaultEnd: property.gradientEnd,
+                          );
+                        },
+                      ),
+                    ),
                   ),
 
-                  // Top gradient overlay to ensure icons stay legible
+                  // 2. Top gradient overlay to ensure top icons remain legible (IgnorePointer so it never blocks swipe)
                   Positioned(
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: 90,
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Color(0x99000000), Color(0x00000000)],
+                    height: 100,
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0x99000000), Color(0x00000000)],
+                          ),
                         ),
                       ),
                     ),
                   ),
 
-                  // Bottom info banner (Counter + Photo label)
+                  // 3. Desktop/Web Navigation Arrows (< and > buttons)
+                  if (_currentPhotoIndex > 0)
+                    Positioned(
+                      left: 12,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: Material(
+                          color: Colors.black.withAlpha(130),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              _pageController.previousPage(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.chevron_left,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  if (_currentPhotoIndex < photos.length - 1)
+                    Positioned(
+                      right: 12,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: Material(
+                          color: Colors.black.withAlpha(130),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              _pageController.nextPage(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.chevron_right,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 4. Bottom info banner (Counter + Photo label + Interactive dots)
                   Positioned(
                     left: 16,
                     right: 16,
@@ -231,40 +316,54 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withAlpha(150),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.photo_camera_outlined, size: 14, color: Colors.white),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${_currentPhotoIndex + 1} / ${photos.length} • ${photos[_currentPhotoIndex].label}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                        IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withAlpha(150),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.photo_camera_outlined, size: 14, color: Colors.white),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_currentPhotoIndex + 1} / ${photos.length} • ${photos[_currentPhotoIndex].label}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                        // Page indicators (dots)
+                        // Page indicators (interactive clickable dots)
                         Row(
                           children: List.generate(photos.length, (dotIndex) {
                             final isActive = dotIndex == _currentPhotoIndex;
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              width: isActive ? 18 : 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: isActive ? Colors.white : Colors.white54,
-                                borderRadius: BorderRadius.circular(3),
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _pageController.animateToPage(
+                                  dotIndex,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: isActive ? 18 : 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: isActive ? Colors.white : Colors.white54,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
                               ),
                             );
                           }),
@@ -793,12 +892,35 @@ class _GalleryPhotoItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If future milestone provides network photo
+    // If photo provides a network photo URL
     if (photo.isNetworkPhoto) {
       return Image.network(
         photo.imageUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildFallbackIllustration(),
+        width: double.infinity,
+        height: double.infinity,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            color: AppColors.background,
+            child: Center(
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                  color: AppColors.green,
+                ),
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) =>
+            _buildFallbackIllustration(isError: true),
       );
     }
 
@@ -807,19 +929,24 @@ class _GalleryPhotoItem extends StatelessWidget {
       return Image.asset(
         photo.assetPath!,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildFallbackIllustration(),
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (context, error, stackTrace) =>
+            _buildFallbackIllustration(isError: true),
       );
     }
 
-    // Demo illustration
+    // Fallback illustration
     return _buildFallbackIllustration();
   }
 
-  Widget _buildFallbackIllustration() {
+  Widget _buildFallbackIllustration({bool isError = false}) {
     final startColor = photo.gradientStart ?? defaultStart;
     final endColor = photo.gradientEnd ?? defaultEnd;
 
     return Container(
+      width: double.infinity,
+      height: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -837,8 +964,8 @@ class _GalleryPhotoItem extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  photo.icon,
-                  size: 78,
+                  isError ? Icons.broken_image_outlined : photo.icon,
+                  size: 64,
                   color: const Color(0xEEFFFFFF),
                 ),
                 const SizedBox(height: 10),
@@ -851,29 +978,40 @@ class _GalleryPhotoItem extends StatelessWidget {
                     letterSpacing: 0.4,
                   ),
                 ),
+                if (isError) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Photo preview offline',
+                    style: TextStyle(
+                      color: Color(0xCCFFFFFF),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          Positioned(
-            left: 16,
-            top: 60,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0x88000000),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'DEMO ILLUSTRATION',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.7,
+          if (!isError)
+            Positioned(
+              left: 16,
+              top: 60,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0x88000000),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'DEMO ILLUSTRATION',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.7,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
