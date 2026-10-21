@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:basha_lagbe/property_details_screen.dart';
 
 void main() {
   runApp(const BashaLagbeApp());
@@ -102,6 +103,16 @@ class Property {
     required this.icon,
     required this.gradientStart,
     required this.gradientEnd,
+    this.depositAmount,
+    this.sizeSqFt,
+    this.floorLevel = 'Not specified',
+    this.balconies = 1,
+    this.fullAddress,
+    this.description = '',
+    this.facilities = const [],
+    this.nearbyHighlights = const [],
+    this.photos = const [],
+    this.utilityNotice = 'Electricity & utility bills as per usage/sub-meter',
   });
 
   final String id;
@@ -117,6 +128,18 @@ class Property {
   final IconData icon;
   final Color gradientStart;
   final Color gradientEnd;
+
+  // Detailed fields for property details & future milestones
+  final int? depositAmount;
+  final int? sizeSqFt;
+  final String floorLevel;
+  final int balconies;
+  final String? fullAddress;
+  final String description;
+  final List<String> facilities;
+  final List<String> nearbyHighlights;
+  final List<PropertyPhoto> photos;
+  final String utilityNotice;
 }
 
 // All of these listings are fictional and for design preview only.
@@ -126,7 +149,12 @@ const List<Property> demoProperties = [
     title: 'Green Nest Family Flat',
     area: 'Mirpur 10, Dhaka',
     landmark: 'Near Mirpur 10 Metro Rail Station',
+    fullAddress: 'Road 4, Block C, Section 10, Mirpur, Dhaka',
     rentPerMonth: 18000,
+    depositAmount: 36000,
+    sizeSqFt: 1250,
+    floorLevel: '4th Floor (Lift-3)',
+    balconies: 2,
     type: PropertyType.family,
     bedrooms: 3,
     bathrooms: 2,
@@ -135,13 +163,62 @@ const List<Property> demoProperties = [
     icon: Icons.apartment,
     gradientStart: Color(0xFF2E9E6B),
     gradientEnd: Color(0xFF0E5E3B),
+    description:
+        'Spacious, naturally lit south-facing family apartment in a gated residential building. Excellent cross-ventilation, separate drawing and dining spaces, and child-safe balcony railings.',
+    facilities: [
+      'Lift (Elevator)',
+      'Standby Generator',
+      'Titas Pipeline Gas',
+      '24/7 Guard & CCTV',
+      'Car Parking Available',
+      'South-facing Balcony',
+      'Water Supply 24/7',
+    ],
+    nearbyHighlights: [
+      'Mirpur 10 Metro Rail Station (3 min walk)',
+      'Mirpur Girls Ideal School & College (5 min)',
+      'Benarosi Palli & Local Supermarket (4 min)',
+      'Central Jam-e Mosque (2 min)',
+    ],
+    utilityNotice: 'Gas & water included in service charge; electricity prepaid sub-meter.',
+    photos: [
+      PropertyPhoto(
+        label: 'Living & Dining Hall',
+        icon: Icons.chair_outlined,
+        gradientStart: Color(0xFF2E9E6B),
+        gradientEnd: Color(0xFF0E5E3B),
+      ),
+      PropertyPhoto(
+        label: 'Master Bedroom',
+        icon: Icons.bed_outlined,
+        gradientStart: Color(0xFF38A169),
+        gradientEnd: Color(0xFF1B6B45),
+      ),
+      PropertyPhoto(
+        label: 'Modern Fitted Kitchen',
+        icon: Icons.kitchen_outlined,
+        gradientStart: Color(0xFF2B8A68),
+        gradientEnd: Color(0xFF104D36),
+      ),
+      PropertyPhoto(
+        label: 'South Balcony View',
+        icon: Icons.balcony_outlined,
+        gradientStart: Color(0xFF48BB78),
+        gradientEnd: Color(0xFF22543D),
+      ),
+    ],
   ),
   Property(
     id: 'demo-2',
     title: 'Lakeview Bachelor Room',
     area: 'Dhanmondi, Dhaka',
     landmark: 'Near Dhanmondi Lake',
+    fullAddress: 'Road 8/A, Dhanmondi R/A, Dhaka',
     rentPerMonth: 9500,
+    depositAmount: 9500,
+    sizeSqFt: 380,
+    floorLevel: '3rd Floor',
+    balconies: 1,
     type: PropertyType.bachelor,
     bedrooms: 1,
     bathrooms: 1,
@@ -150,13 +227,54 @@ const List<Property> demoProperties = [
     icon: Icons.home_work,
     gradientStart: Color(0xFF3AA6A0),
     gradientEnd: Color(0xFF176B66),
+    description:
+        'Peaceful and secure bachelor room with attached tiled washroom and private lake-facing balcony. Ideal for university students or young professionals looking for a calm study atmosphere.',
+    facilities: [
+      'Attached Bathroom',
+      'Lake-facing Balcony',
+      'High-speed Wi-Fi Ready',
+      'Filtered Drinking Water',
+      '24/7 Security Guard',
+      'Daily Maid Cleaning Option',
+    ],
+    nearbyHighlights: [
+      'Dhanmondi Lake Park (1 min walk)',
+      'Rapa Plaza & Metro Shopping Mall (6 min)',
+      'Food Courts & Dhanmondi 27 Hub (5 min)',
+    ],
+    utilityNotice: 'Wi-Fi and water included; shared electricity divided equally.',
+    photos: [
+      PropertyPhoto(
+        label: 'Bachelor Room',
+        icon: Icons.single_bed_outlined,
+        gradientStart: Color(0xFF3AA6A0),
+        gradientEnd: Color(0xFF176B66),
+      ),
+      PropertyPhoto(
+        label: 'Attached Bathroom',
+        icon: Icons.bathtub_outlined,
+        gradientStart: Color(0xFF319795),
+        gradientEnd: Color(0xFF234E52),
+      ),
+      PropertyPhoto(
+        label: 'Lake View Balcony',
+        icon: Icons.deck_outlined,
+        gradientStart: Color(0xFF4FD1C5),
+        gradientEnd: Color(0xFF285E61),
+      ),
+    ],
   ),
   Property(
     id: 'demo-3',
     title: 'Sunrise Shared Mess Seat',
     area: 'Mohammadpur, Dhaka',
     landmark: 'Near Mohammadpur Town Hall',
+    fullAddress: 'Noorjahan Road, Mohammadpur, Dhaka',
     rentPerMonth: 4500,
+    depositAmount: 4500,
+    sizeSqFt: 220,
+    floorLevel: '2nd Floor',
+    balconies: 1,
     type: PropertyType.shared,
     bedrooms: 1,
     bathrooms: 1,
@@ -165,13 +283,47 @@ const List<Property> demoProperties = [
     icon: Icons.groups,
     gradientStart: Color(0xFF6BB26B),
     gradientEnd: Color(0xFF2F7A3F),
+    description:
+        'Cozy single seat in a friendly 2-person shared room with managed mess meal system. Conveniently located near Mohammadpur Town Hall market and bus stands.',
+    facilities: [
+      'Running Meal System (3 times)',
+      'High-speed Wi-Fi',
+      'Drinking Water Filter',
+      'Housekeeping Service',
+      'Shared Fridge & Kitchen',
+    ],
+    nearbyHighlights: [
+      'Mohammadpur Town Hall Market (2 min walk)',
+      'Mohammadpur Bus Stand (5 min walk)',
+      'Krishi Market & Daily Bazaar (4 min)',
+    ],
+    utilityNotice: 'Gas, electricity and Wi-Fi included in monthly rent. Meals charged per meal.',
+    photos: [
+      PropertyPhoto(
+        label: 'Shared Bed Space',
+        icon: Icons.bed_outlined,
+        gradientStart: Color(0xFF6BB26B),
+        gradientEnd: Color(0xFF2F7A3F),
+      ),
+      PropertyPhoto(
+        label: 'Common Study & Dining',
+        icon: Icons.table_restaurant_outlined,
+        gradientStart: Color(0xFF48BB78),
+        gradientEnd: Color(0xFF276749),
+      ),
+    ],
   ),
   Property(
     id: 'demo-4',
     title: 'Palm Court Apartment',
     area: 'Uttara Sector 7, Dhaka',
     landmark: 'Near Uttara North Metro Station',
+    fullAddress: 'Road 12, Sector 7, Uttara, Dhaka',
     rentPerMonth: 25000,
+    depositAmount: 50000,
+    sizeSqFt: 1550,
+    floorLevel: '6th Floor (Lift)',
+    balconies: 3,
     type: PropertyType.family,
     bedrooms: 3,
     bathrooms: 3,
@@ -180,13 +332,60 @@ const List<Property> demoProperties = [
     icon: Icons.domain,
     gradientStart: Color(0xFF45A880),
     gradientEnd: Color(0xFF14654A),
+    description:
+        'Premium 3-bedroom family apartment with imported fittings, master bath tub, expansive open kitchen, and reserved basement parking in a quiet neighborhood of Uttara.',
+    facilities: [
+      'Twin High-speed Lifts',
+      'Full Standby Generator (including AC)',
+      'Reserved Car Parking Slot',
+      'CCTV Surveillance & Guard 24/7',
+      'Intercom & Fire Safety System',
+      '3 Wide Balconies',
+    ],
+    nearbyHighlights: [
+      'Uttara North Metro Station (5 min)',
+      'Sector 7 Central Park & Lake (3 min walk)',
+      'Scholastica & Milestone College (6 min)',
+    ],
+    utilityNotice: 'Prepaid electricity; service charge includes gas, water and generator maintenance.',
+    photos: [
+      PropertyPhoto(
+        label: 'Spacious Drawing Room',
+        icon: Icons.weekend_outlined,
+        gradientStart: Color(0xFF45A880),
+        gradientEnd: Color(0xFF14654A),
+      ),
+      PropertyPhoto(
+        label: 'Master Bedroom Suite',
+        icon: Icons.bed_outlined,
+        gradientStart: Color(0xFF38B2AC),
+        gradientEnd: Color(0xFF234E52),
+      ),
+      PropertyPhoto(
+        label: 'Kitchen & Dining Area',
+        icon: Icons.kitchen_outlined,
+        gradientStart: Color(0xFF4FD1C5),
+        gradientEnd: Color(0xFF1D4044),
+      ),
+      PropertyPhoto(
+        label: 'Corner Balcony',
+        icon: Icons.balcony_outlined,
+        gradientStart: Color(0xFF2C7A7B),
+        gradientEnd: Color(0xFF1A365D),
+      ),
+    ],
   ),
   Property(
     id: 'demo-5',
     title: 'Campus Corner Studio',
     area: 'Bashundhara R/A, Dhaka',
     landmark: 'Near Jamuna Future Park',
+    fullAddress: 'Block D, Bashundhara R/A, Dhaka',
     rentPerMonth: 12000,
+    depositAmount: 12000,
+    sizeSqFt: 520,
+    floorLevel: '2nd Floor',
+    balconies: 1,
     type: PropertyType.bachelor,
     bedrooms: 1,
     bathrooms: 1,
@@ -195,13 +394,48 @@ const List<Property> demoProperties = [
     icon: Icons.house,
     gradientStart: Color(0xFF52B788),
     gradientEnd: Color(0xFF1F7A56),
+    description:
+        'Modern studio apartment tailored for university students or tech professionals. Walking distance to private universities, supermarkets, and fitness gyms.',
+    facilities: [
+      'Elevator / Lift',
+      'Standby Generator Backup',
+      'High-speed Fiber Wi-Fi Ready',
+      'Security Guard & Intercom',
+      'Modern Kitchenette',
+    ],
+    nearbyHighlights: [
+      'North South University & IUB (6 min)',
+      'Jamuna Future Park (7 min)',
+      'Evercare Hospital Dhaka (8 min)',
+      'Meena Bazar & Gyms (3 min walk)',
+    ],
+    utilityNotice: 'Water & security included; electricity as per digital sub-meter.',
+    photos: [
+      PropertyPhoto(
+        label: 'Studio Room & Desk Space',
+        icon: Icons.laptop_chromebook_outlined,
+        gradientStart: Color(0xFF52B788),
+        gradientEnd: Color(0xFF1F7A56),
+      ),
+      PropertyPhoto(
+        label: 'Kitchenette & Bath',
+        icon: Icons.microwave_outlined,
+        gradientStart: Color(0xFF68D391),
+        gradientEnd: Color(0xFF276749),
+      ),
+    ],
   ),
   Property(
     id: 'demo-6',
     title: 'Hilltop Family Home',
     area: 'Zindabazar, Sylhet',
     landmark: 'Near Zindabazar Point',
+    fullAddress: 'Jallarpar Road, Zindabazar, Sylhet',
     rentPerMonth: 15000,
+    depositAmount: 30000,
+    sizeSqFt: 1100,
+    floorLevel: '3rd Floor',
+    balconies: 2,
     type: PropertyType.family,
     bedrooms: 2,
     bathrooms: 2,
@@ -210,13 +444,47 @@ const List<Property> demoProperties = [
     icon: Icons.cottage,
     gradientStart: Color(0xFF4FAE8C),
     gradientEnd: Color(0xFF1A6B55),
+    description:
+        'Peaceful and airy family residence in central Sylhet. Offers refreshing natural breezes, high ceilings, rooftop access, and hassle-free city connection.',
+    facilities: [
+      '24/7 Deep Tube-well Water',
+      'Generator Power Backup',
+      '2 Spacious Balconies',
+      'Dedicated Bike & Car Parking',
+      'Rooftop Garden Access',
+    ],
+    nearbyHighlights: [
+      'Zindabazar Point & Shopping Mall (3 min walk)',
+      'Sylhet Central Jam-e Mosque (4 min)',
+      'Shahi Eidgah & Parks (7 min)',
+    ],
+    utilityNotice: 'Gas & water included; DESCO/BPDB electricity by user meter.',
+    photos: [
+      PropertyPhoto(
+        label: 'Main Living Room',
+        icon: Icons.living_outlined,
+        gradientStart: Color(0xFF4FAE8C),
+        gradientEnd: Color(0xFF1A6B55),
+      ),
+      PropertyPhoto(
+        label: 'Master Bedroom',
+        icon: Icons.bedroom_parent_outlined,
+        gradientStart: Color(0xFF38A169),
+        gradientEnd: Color(0xFF1C4532),
+      ),
+    ],
   ),
   Property(
     id: 'demo-7',
     title: 'Harbour Side Shared Flat',
     area: 'Agrabad, Chattogram',
     landmark: 'Near Agrabad Commercial Area',
+    fullAddress: 'Badamtoli Mor, Agrabad C/A, Chattogram',
     rentPerMonth: 7000,
+    depositAmount: 7000,
+    sizeSqFt: 620,
+    floorLevel: '4th Floor',
+    balconies: 1,
     type: PropertyType.shared,
     bedrooms: 2,
     bathrooms: 1,
@@ -225,13 +493,47 @@ const List<Property> demoProperties = [
     icon: Icons.holiday_village,
     gradientStart: Color(0xFF3C9D9B),
     gradientEnd: Color(0xFF15616A),
+    description:
+        'Well-connected executive shared flat for commercial professionals and port personnel working in Chattogram. Well-kept with dedicated study spaces.',
+    facilities: [
+      'Generator Power Backup',
+      'High-speed Wi-Fi',
+      '24/7 Security Gate',
+      'Balcony with Port Breeze',
+      'Water Filter & Fridge',
+    ],
+    nearbyHighlights: [
+      'World Trade Center Chattogram (4 min)',
+      'Agrabad Commercial Bank Zone (3 min walk)',
+      'Access Road Bus Stops (2 min walk)',
+    ],
+    utilityNotice: 'Electricity and Wi-Fi included in rent.',
+    photos: [
+      PropertyPhoto(
+        label: 'Shared Bedroom',
+        icon: Icons.bed_outlined,
+        gradientStart: Color(0xFF3C9D9B),
+        gradientEnd: Color(0xFF15616A),
+      ),
+      PropertyPhoto(
+        label: 'City View Balcony',
+        icon: Icons.deck_outlined,
+        gradientStart: Color(0xFF4FD1C5),
+        gradientEnd: Color(0xFF234E52),
+      ),
+    ],
   ),
   Property(
     id: 'demo-8',
     title: 'Banani Garden Flat',
     area: 'Banani, Dhaka',
     landmark: 'Near Banani Road 11',
+    fullAddress: 'Road 11, Block D, Banani, Dhaka',
     rentPerMonth: 32000,
+    depositAmount: 64000,
+    sizeSqFt: 1850,
+    floorLevel: '5th Floor (Lift)',
+    balconies: 3,
     type: PropertyType.family,
     bedrooms: 4,
     bathrooms: 3,
@@ -240,6 +542,49 @@ const List<Property> demoProperties = [
     icon: Icons.villa,
     gradientStart: Color(0xFF2F9E5E),
     gradientEnd: Color(0xFF0B5A35),
+    description:
+        'Luxurious and peaceful 4-bedroom flat nestled in prime Banani. Close to top dining, embassies, international schools, and serene community parks.',
+    facilities: [
+      'Dual Elevator System',
+      'Full Heavy Generator Backup',
+      '2 Reserved Basement Car Parks',
+      '24/7 CCTV & Professional Guards',
+      'Modular Kitchen with Gas Line',
+      'Intercom & Video Door Phone',
+    ],
+    nearbyHighlights: [
+      'Banani Road 11 Dining Hub (2 min walk)',
+      'Kamal Ataturk Avenue (4 min walk)',
+      'Banani Lake Park & Walking Track (5 min)',
+      'American International School & Embaassies (7 min)',
+    ],
+    utilityNotice: 'Maintenance service charge covers generator, gas, security and cleaning.',
+    photos: [
+      PropertyPhoto(
+        label: 'Designer Drawing Room',
+        icon: Icons.weekend_outlined,
+        gradientStart: Color(0xFF2F9E5E),
+        gradientEnd: Color(0xFF0B5A35),
+      ),
+      PropertyPhoto(
+        label: 'Master Bedroom with Balcony',
+        icon: Icons.bedroom_parent_outlined,
+        gradientStart: Color(0xFF38A169),
+        gradientEnd: Color(0xFF1B4D3E),
+      ),
+      PropertyPhoto(
+        label: 'Gourmet Kitchen',
+        icon: Icons.kitchen_outlined,
+        gradientStart: Color(0xFF48BB78),
+        gradientEnd: Color(0xFF22543D),
+      ),
+      PropertyPhoto(
+        label: 'Greenery Balcony View',
+        icon: Icons.park_outlined,
+        gradientStart: Color(0xFF285E61),
+        gradientEnd: Color(0xFF1A365D),
+      ),
+    ],
   ),
 ];
 
@@ -471,10 +816,14 @@ class SavedScreen extends StatelessWidget {
                             onToggleFavourite(property.id);
                           },
                           onTap: () {
-                            showFriendlyMessage(
-                              context,
-                              'Property details are coming soon. '
-                              'This is a demo listing.',
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => PropertyDetailsScreen(
+                                  property: property,
+                                  favouriteIds: favouriteIds,
+                                  onToggleFavourite: onToggleFavourite,
+                                ),
+                              ),
                             );
                           },
                         ),
@@ -604,10 +953,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     property: property,
                     isFavourite: widget.favouriteIds.contains(property.id),
                     onFavouriteTap: () => widget.onToggleFavourite(property.id),
-                    onTap: () => showFriendlyMessage(
-                      context,
-                      'Property details are coming soon. This is a demo listing.',
-                    ),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => PropertyDetailsScreen(
+                            property: property,
+                            favouriteIds: widget.favouriteIds,
+                            onToggleFavourite: widget.onToggleFavourite,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 );
               }, childCount: results.length),
