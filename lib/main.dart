@@ -1,4 +1,5 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
@@ -173,8 +174,7 @@ const List<Property> demoProperties = [
     icon: Icons.apartment,
     gradientStart: Color(0xFF2E9E6B),
     gradientEnd: Color(0xFF0E5E3B),
-    description:
-        'Spacious, naturally lit south-facing family apartment in a gated residential building. Excellent cross-ventilation, separate drawing and dining spaces, and child-safe balcony railings.',
+    description: 'Spacious, naturally lit south-facing family apartment in a gated residential building. Excellent cross-ventilation, separate drawing and dining spaces, and child-safe balcony railings.',
     facilities: [
       'Lift (Elevator)',
       'Standby Generator',
@@ -194,32 +194,28 @@ const List<Property> demoProperties = [
     photos: [
       PropertyPhoto(
         label: 'Living & Dining Hall',
-        imageUrl:
-            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.chair_outlined,
         gradientStart: Color(0xFF2E9E6B),
         gradientEnd: Color(0xFF0E5E3B),
       ),
       PropertyPhoto(
         label: 'Master Bedroom',
-        imageUrl:
-            'https://images.unsplash.com/photo-1540518614846-7ede433c4550?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1540518614846-7ede433c4550?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bed_outlined,
         gradientStart: Color(0xFF38A169),
         gradientEnd: Color(0xFF1B6B45),
       ),
       PropertyPhoto(
         label: 'Modern Fitted Kitchen',
-        imageUrl:
-            'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.kitchen_outlined,
         gradientStart: Color(0xFF2B8A68),
         gradientEnd: Color(0xFF104D36),
       ),
       PropertyPhoto(
         label: 'South Balcony View',
-        imageUrl:
-            'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.balcony_outlined,
         gradientStart: Color(0xFF48BB78),
         gradientEnd: Color(0xFF22543D),
@@ -245,8 +241,7 @@ const List<Property> demoProperties = [
     icon: Icons.home_work,
     gradientStart: Color(0xFF3AA6A0),
     gradientEnd: Color(0xFF176B66),
-    description:
-        'Peaceful and secure bachelor room with attached tiled washroom and private lake-facing balcony. Ideal for university students or young professionals looking for a calm study atmosphere.',
+    description: 'Peaceful and secure bachelor room with attached tiled washroom and private lake-facing balcony. Ideal for university students or young professionals looking for a calm study atmosphere.',
     facilities: [
       'Attached Bathroom',
       'Lake-facing Balcony',
@@ -260,36 +255,33 @@ const List<Property> demoProperties = [
       'Rapa Plaza & Metro Shopping Mall (6 min)',
       'Food Courts & Dhanmondi 27 Hub (5 min)',
     ],
-    utilityNotice: 'Wi-Fi and water included; shared electricity divided equally.',
+    utilityNotice:
+        'Wi-Fi and water included; shared electricity divided equally.',
     photos: [
       PropertyPhoto(
         label: 'Bachelor Room',
-        imageUrl:
-            'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.single_bed_outlined,
         gradientStart: Color(0xFF3AA6A0),
         gradientEnd: Color(0xFF176B66),
       ),
       PropertyPhoto(
         label: 'Study Desk Area',
-        imageUrl:
-            'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.laptop_chromebook_outlined,
         gradientStart: Color(0xFF319795),
         gradientEnd: Color(0xFF234E52),
       ),
       PropertyPhoto(
         label: 'Attached Bathroom',
-        imageUrl:
-            'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bathtub_outlined,
         gradientStart: Color(0xFF2C7A7B),
         gradientEnd: Color(0xFF1A365D),
       ),
       PropertyPhoto(
         label: 'Lake View Balcony',
-        imageUrl:
-            'https://images.unsplash.com/photo-1507089947368-19c1da9775ae?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1507089947368-19c1da9775ae?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.deck_outlined,
         gradientStart: Color(0xFF4FD1C5),
         gradientEnd: Color(0xFF285E61),
@@ -315,8 +307,7 @@ const List<Property> demoProperties = [
     icon: Icons.groups,
     gradientStart: Color(0xFF6BB26B),
     gradientEnd: Color(0xFF2F7A3F),
-    description:
-        'Cozy single seat in a friendly 2-person shared room with managed mess meal system. Conveniently located near Mohammadpur Town Hall market and bus stands.',
+    description: 'Cozy single seat in a friendly 2-person shared room with managed mess meal system. Conveniently located near Mohammadpur Town Hall market and bus stands.',
     facilities: [
       'Running Meal System (3 times)',
       'High-speed Wi-Fi',
@@ -333,24 +324,21 @@ const List<Property> demoProperties = [
     photos: [
       PropertyPhoto(
         label: 'Shared Bed Space',
-        imageUrl:
-            'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bed_outlined,
         gradientStart: Color(0xFF6BB26B),
         gradientEnd: Color(0xFF2F7A3F),
       ),
       PropertyPhoto(
         label: 'Study & Common Area',
-        imageUrl:
-            'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.table_restaurant_outlined,
         gradientStart: Color(0xFF48BB78),
         gradientEnd: Color(0xFF276749),
       ),
       PropertyPhoto(
         label: 'Kitchen & Dining',
-        imageUrl:
-            'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.kitchen_outlined,
         gradientStart: Color(0xFF38A169),
         gradientEnd: Color(0xFF1C4532),
@@ -376,8 +364,7 @@ const List<Property> demoProperties = [
     icon: Icons.domain,
     gradientStart: Color(0xFF45A880),
     gradientEnd: Color(0xFF14654A),
-    description:
-        'Premium 3-bedroom family apartment with imported fittings, master bath tub, expansive open kitchen, and reserved basement parking in a quiet neighborhood of Uttara.',
+    description: 'Premium 3-bedroom family apartment with imported fittings, master bath tub, expansive open kitchen, and reserved basement parking in a quiet neighborhood of Uttara.',
     facilities: [
       'Twin High-speed Lifts',
       'Full Standby Generator (including AC)',
@@ -395,32 +382,28 @@ const List<Property> demoProperties = [
     photos: [
       PropertyPhoto(
         label: 'Spacious Drawing Room',
-        imageUrl:
-            'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.weekend_outlined,
         gradientStart: Color(0xFF45A880),
         gradientEnd: Color(0xFF14654A),
       ),
       PropertyPhoto(
         label: 'Master Bedroom Suite',
-        imageUrl:
-            'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bed_outlined,
         gradientStart: Color(0xFF38B2AC),
         gradientEnd: Color(0xFF234E52),
       ),
       PropertyPhoto(
         label: 'Kitchen & Dining Area',
-        imageUrl:
-            'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.kitchen_outlined,
         gradientStart: Color(0xFF4FD1C5),
         gradientEnd: Color(0xFF1D4044),
       ),
       PropertyPhoto(
         label: 'Corner Balcony',
-        imageUrl:
-            'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.balcony_outlined,
         gradientStart: Color(0xFF2C7A7B),
         gradientEnd: Color(0xFF1A365D),
@@ -446,8 +429,7 @@ const List<Property> demoProperties = [
     icon: Icons.house,
     gradientStart: Color(0xFF52B788),
     gradientEnd: Color(0xFF1F7A56),
-    description:
-        'Modern studio apartment tailored for university students or tech professionals. Walking distance to private universities, supermarkets, and fitness gyms.',
+    description: 'Modern studio apartment tailored for university students or tech professionals. Walking distance to private universities, supermarkets, and fitness gyms.',
     facilities: [
       'Elevator / Lift',
       'Standby Generator Backup',
@@ -461,28 +443,26 @@ const List<Property> demoProperties = [
       'Evercare Hospital Dhaka (8 min)',
       'Meena Bazar & Gyms (3 min walk)',
     ],
-    utilityNotice: 'Water & security included; electricity as per digital sub-meter.',
+    utilityNotice:
+        'Water & security included; electricity as per digital sub-meter.',
     photos: [
       PropertyPhoto(
         label: 'Studio Room & Desk Space',
-        imageUrl:
-            'https://images.unsplash.com/photo-1536376072261-38c75010e6c9?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1536376072261-38c75010e6c9?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.laptop_chromebook_outlined,
         gradientStart: Color(0xFF52B788),
         gradientEnd: Color(0xFF1F7A56),
       ),
       PropertyPhoto(
         label: 'Work Desk & Living',
-        imageUrl:
-            'https://images.unsplash.com/photo-1499955085172-a104c9463ece?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1499955085172-a104c9463ece?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.weekend_outlined,
         gradientStart: Color(0xFF48BB78),
         gradientEnd: Color(0xFF276749),
       ),
       PropertyPhoto(
         label: 'Kitchenette & Bath',
-        imageUrl:
-            'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.microwave_outlined,
         gradientStart: Color(0xFF68D391),
         gradientEnd: Color(0xFF276749),
@@ -508,8 +488,7 @@ const List<Property> demoProperties = [
     icon: Icons.cottage,
     gradientStart: Color(0xFF4FAE8C),
     gradientEnd: Color(0xFF1A6B55),
-    description:
-        'Peaceful and airy family residence in central Sylhet. Offers refreshing natural breezes, high ceilings, rooftop access, and hassle-free city connection.',
+    description: 'Peaceful and airy family residence in central Sylhet. Offers refreshing natural breezes, high ceilings, rooftop access, and hassle-free city connection.',
     facilities: [
       '24/7 Deep Tube-well Water',
       'Generator Power Backup',
@@ -522,28 +501,26 @@ const List<Property> demoProperties = [
       'Sylhet Central Jam-e Mosque (4 min)',
       'Shahi Eidgah & Parks (7 min)',
     ],
-    utilityNotice: 'Gas & water included; DESCO/BPDB electricity by user meter.',
+    utilityNotice:
+        'Gas & water included; DESCO/BPDB electricity by user meter.',
     photos: [
       PropertyPhoto(
         label: 'Main Living Room',
-        imageUrl:
-            'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.living_outlined,
         gradientStart: Color(0xFF4FAE8C),
         gradientEnd: Color(0xFF1A6B55),
       ),
       PropertyPhoto(
         label: 'Master Bedroom',
-        imageUrl:
-            'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bedroom_parent_outlined,
         gradientStart: Color(0xFF38A169),
         gradientEnd: Color(0xFF1C4532),
       ),
       PropertyPhoto(
         label: 'Balcony & Garden View',
-        imageUrl:
-            'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.deck_outlined,
         gradientStart: Color(0xFF48BB78),
         gradientEnd: Color(0xFF22543D),
@@ -569,8 +546,7 @@ const List<Property> demoProperties = [
     icon: Icons.holiday_village,
     gradientStart: Color(0xFF3C9D9B),
     gradientEnd: Color(0xFF15616A),
-    description:
-        'Well-connected executive shared flat for commercial professionals and port personnel working in Chattogram. Well-kept with dedicated study spaces.',
+    description: 'Well-connected executive shared flat for commercial professionals and port personnel working in Chattogram. Well-kept with dedicated study spaces.',
     facilities: [
       'Generator Power Backup',
       'High-speed Wi-Fi',
@@ -587,24 +563,21 @@ const List<Property> demoProperties = [
     photos: [
       PropertyPhoto(
         label: 'Executive Bedroom',
-        imageUrl:
-            'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bed_outlined,
         gradientStart: Color(0xFF3C9D9B),
         gradientEnd: Color(0xFF15616A),
       ),
       PropertyPhoto(
         label: 'Living & Dining Space',
-        imageUrl:
-            'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.table_restaurant_outlined,
         gradientStart: Color(0xFF319795),
         gradientEnd: Color(0xFF234E52),
       ),
       PropertyPhoto(
         label: 'City View Balcony',
-        imageUrl:
-            'https://images.unsplash.com/photo-1502005229762-ee1b2b8ab98f?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1502005229762-ee1b2b8ab98f?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.deck_outlined,
         gradientStart: Color(0xFF4FD1C5),
         gradientEnd: Color(0xFF234E52),
@@ -630,8 +603,7 @@ const List<Property> demoProperties = [
     icon: Icons.villa,
     gradientStart: Color(0xFF2F9E5E),
     gradientEnd: Color(0xFF0B5A35),
-    description:
-        'Luxurious and peaceful 4-bedroom flat nestled in prime Banani. Close to top dining, embassies, international schools, and serene community parks.',
+    description: 'Luxurious and peaceful 4-bedroom flat nestled in prime Banani. Close to top dining, embassies, international schools, and serene community parks.',
     facilities: [
       'Dual Elevator System',
       'Full Heavy Generator Backup',
@@ -650,32 +622,28 @@ const List<Property> demoProperties = [
     photos: [
       PropertyPhoto(
         label: 'Designer Drawing Room',
-        imageUrl:
-            'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.weekend_outlined,
         gradientStart: Color(0xFF2F9E5E),
         gradientEnd: Color(0xFF0B5A35),
       ),
       PropertyPhoto(
         label: 'Master Bedroom with Balcony',
-        imageUrl:
-            'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.bedroom_parent_outlined,
         gradientStart: Color(0xFF38A169),
         gradientEnd: Color(0xFF1B4D3E),
       ),
       PropertyPhoto(
         label: 'Gourmet Kitchen',
-        imageUrl:
-            'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.kitchen_outlined,
         gradientStart: Color(0xFF48BB78),
         gradientEnd: Color(0xFF22543D),
       ),
       PropertyPhoto(
         label: 'Greenery Balcony View',
-        imageUrl:
-            'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
+        imageUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
         icon: Icons.park_outlined,
         gradientStart: Color(0xFF285E61),
         gradientEnd: Color(0xFF1A365D),
@@ -752,8 +720,7 @@ class _MainShellState extends State<MainShell> {
         icon: Icons.home_work,
         gradientStart: Color(0xFF3AA6A0),
         gradientEnd: Color(0xFF176B66),
-        description:
-            'Peaceful bachelor room with private lake-facing balcony, attached bath, and quiet study environment.',
+        description: 'Peaceful bachelor room with private lake-facing balcony, attached bath, and quiet study environment.',
         facilities: [
           'Attached Bathroom',
           'Lake-facing Balcony',
@@ -763,13 +730,11 @@ class _MainShellState extends State<MainShell> {
         photos: [
           PropertyPhoto(
             label: 'Bachelor Room',
-            imageUrl:
-                'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
+            imageUrl: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
           ),
           PropertyPhoto(
             label: 'Study Desk Area',
-            imageUrl:
-                'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
+            imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
           ),
         ],
       ),
