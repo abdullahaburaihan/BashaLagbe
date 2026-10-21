@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/main.dart';
+import 'package:basha_lagbe/auth_sheet.dart';
+import 'package:basha_lagbe/services/auth_service.dart';
 
 // ---------------------------------------------------------------------------
 // Models for User Profile & Rental Requests
@@ -64,6 +67,8 @@ class ProfileScreen extends StatefulWidget {
     super.key,
     required this.profile,
     required this.onProfileUpdated,
+    this.firebaseUser,
+    this.onSignOut,
     required this.listingsCount,
     required this.savedCount,
     required this.rentalRequests,
@@ -75,6 +80,8 @@ class ProfileScreen extends StatefulWidget {
 
   final UserProfile profile;
   final ValueChanged<UserProfile> onProfileUpdated;
+  final User? firebaseUser;
+  final VoidCallback? onSignOut;
   final int listingsCount;
   final int savedCount;
   final List<RentalRequest> rentalRequests;
@@ -89,6 +96,76 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsEnabled = true;
+
+  void _openAuthSheet({bool isRegister = false}) {
+    AuthSheet.show(
+      context,
+      initialIsRegister: isRegister,
+      onAuthenticated: (user) {
+        showFriendlyMessage(
+          context,
+          'Signed in as ${user.displayName ?? user.email ?? "User"}',
+        );
+      },
+    );
+  }
+
+  void _confirmSignOut() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Sign Out'),
+        content: const Text(
+          'Are you sure you want to sign out from your BashaLagbe Firebase account?',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(dialogCtx).pop();
+              try {
+                await AuthService.instance.signOut();
+                widget.onSignOut?.call();
+                if (mounted) {
+                  showFriendlyMessage(context, 'Signed out of Firebase account.');
+                }
+              } catch (e) {
+                if (mounted) {
+                  showFriendlyMessage(context, AuthService.getFriendlyErrorMessage(e));
+                }
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendVerificationEmail() async {
+    try {
+      await AuthService.instance.sendEmailVerification();
+      if (mounted) {
+        showFriendlyMessage(
+          context,
+          'Verification email sent. Please check your inbox and spam folder.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showFriendlyMessage(context, AuthService.getFriendlyErrorMessage(e));
+      }
+    }
+  }
 
   void _openEditProfileSheet() {
     showModalBottomSheet<void>(
@@ -199,186 +276,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
 
               // -------------------------------------------------------------
-              // Profile Identity Card
+              // Profile Identity Card (Firebase Authenticated or Auth Sync + Demo)
               // -------------------------------------------------------------
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.border),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(8),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                  child: widget.firebaseUser != null
+                      ? _buildFirebaseAuthCard(widget.firebaseUser!)
+                      : Column(
                           children: [
-                            // Avatar
-                            Container(
-                              width: 64,
-                              height: 64,
-                              decoration: const BoxDecoration(
-                                color: AppColors.lightGreen,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  profile.name.trim().isNotEmpty
-                                      ? profile.name.trim().substring(0, 1).toUpperCase()
-                                      : 'U',
-                                  style: const TextStyle(
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.darkGreen,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Name & Role
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          profile.name,
-                                          style: const TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.w800,
-                                            color: AppColors.textDark,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.lightGreen,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      profile.role,
-                                      style: const TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.darkGreen,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            _buildFirebaseSignInCard(),
+                            _buildDemoProfileCard(profile),
                           ],
                         ),
-
-                        const SizedBox(height: 16),
-                        const Divider(height: 1, color: AppColors.border),
-                        const SizedBox(height: 14),
-
-                        // Contact Info
-                        Row(
-                          children: [
-                            const Icon(Icons.email_outlined, size: 16, color: AppColors.green),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                profile.email,
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  color: AppColors.textDark,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.phone_outlined, size: 16, color: AppColors.green),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                profile.phone,
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  color: AppColors.textDark,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // Demo profile disclosure notice
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.amberLight,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.info_outline, size: 14, color: AppColors.amber),
-                              SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Demo Profile: Saved locally in-memory for testing.',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: AppColors.textDark,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // Edit Profile Button
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            onPressed: _openEditProfileSheet,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.darkGreen,
-                              side: const BorderSide(color: AppColors.green),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 16),
-                            label: const Text(
-                              'Edit Profile Details',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
 
@@ -718,6 +628,517 @@ class _ProfileScreenState extends State<ProfileScreen> {
       onTap: onTap,
     );
   }
+
+  Widget _buildFirebaseAuthCard(User user) {
+    final displayName = user.displayName != null && user.displayName!.trim().isNotEmpty
+        ? user.displayName!.trim()
+        : (user.email != null && user.email!.contains('@')
+            ? user.email!.split('@').first
+            : 'BashaLagbe User');
+    final initial = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : 'U';
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.green, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.green.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Avatar
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: AppColors.lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    initial,
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.darkGreen,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Name & Badges
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayName,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGreen,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.verified, size: 12, color: AppColors.green),
+                              SizedBox(width: 4),
+                              Text(
+                                'Firebase Account',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.darkGreen,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: user.emailVerified ? AppColors.lightGreen : AppColors.amberLight,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            user.emailVerified ? 'Email Verified' : 'Unverified Email',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: user.emailVerified ? AppColors.darkGreen : AppColors.amber,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 14),
+
+          // Email
+          Row(
+            children: [
+              const Icon(Icons.email_outlined, size: 16, color: AppColors.green),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  user.email ?? 'No email provided',
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: AppColors.textDark,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Email verification prompt if unverified
+          if (!user.emailVerified) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.amberLight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 14, color: AppColors.amber),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text(
+                      'Email is not yet verified.',
+                      style: TextStyle(fontSize: 11.5, color: AppColors.textDark),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: _sendVerificationEmail,
+                    child: const Text(
+                      'Send link',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.green,
+                        fontWeight: FontWeight.w800,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 8),
+
+          // UID
+          Row(
+            children: [
+              const Icon(Icons.fingerprint, size: 16, color: AppColors.textMuted),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Firebase UID: ${user.uid}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: AppColors.textMuted,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Actions: Edit Profile & Sign Out
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _openEditProfileSheet,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.darkGreen,
+                    side: const BorderSide(color: AppColors.green),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 15),
+                  label: const Text(
+                    'Edit Profile Details',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: _confirmSignOut,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                  side: BorderSide(color: Colors.red.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.logout, size: 15),
+                label: const Text(
+                  'Sign Out',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFirebaseSignInCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: const BoxDecoration(
+                  color: AppColors.lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.cloud_sync_outlined, color: AppColors.green, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Firebase Authentication',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    Text(
+                      'Sign in or register to sync properties and rental requests.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => _openAuthSheet(isRegister: false),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.login, size: 16),
+                  label: const Text(
+                    'Sign In',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openAuthSheet(isRegister: true),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.darkGreen,
+                    side: const BorderSide(color: AppColors.green),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.person_add_alt_outlined, size: 16),
+                  label: const Text(
+                    'Create Account',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDemoProfileCard(UserProfile profile) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Avatar
+              Container(
+                width: 64,
+                height: 64,
+                decoration: const BoxDecoration(
+                  color: AppColors.lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    profile.name.trim().isNotEmpty
+                        ? profile.name.trim().substring(0, 1).toUpperCase()
+                        : 'U',
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.darkGreen,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Name & Role
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            profile.name,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.lightGreen,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        profile.role,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.darkGreen,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 14),
+
+          // Contact Info
+          Row(
+            children: [
+              const Icon(Icons.email_outlined, size: 16, color: AppColors.green),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  profile.email,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: AppColors.textDark,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.phone_outlined, size: 16, color: AppColors.green),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  profile.phone,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: AppColors.textDark,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Demo profile disclosure notice
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.amberLight,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, size: 14, color: AppColors.amber),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Demo Profile: Saved locally in-memory for testing.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textDark,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Edit Profile Button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openEditProfileSheet,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.darkGreen,
+                side: const BorderSide(color: AppColors.green),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: const Text(
+                'Edit Profile Details',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -760,13 +1181,18 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
     super.dispose();
   }
 
-  void _handleSave() {
+  void _handleSave() async {
     if (_formKey.currentState?.validate() ?? false) {
       final updated = widget.profile.copyWith(
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
         phone: _phoneController.text.trim(),
       );
+      if (AuthService.instance.currentUser != null) {
+        try {
+          await AuthService.instance.updateDisplayName(_nameController.text.trim());
+        } catch (_) {}
+      }
       widget.onSave(updated);
     }
   }

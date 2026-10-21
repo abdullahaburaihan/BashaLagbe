@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/main.dart';
+import 'package:basha_lagbe/services/auth_service.dart';
 
 void main() {
   testWidgets('BashaLagbeApp smoke test and navigation across tabs', (WidgetTester tester) async {
@@ -32,8 +34,11 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 
-    // Verify Profile header and user details
+    // Verify Profile header, Firebase Auth banner, and demo user details
     expect(find.text('My Profile'), findsOneWidget);
+    expect(find.text('Firebase Authentication'), findsOneWidget);
+    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Create Account'), findsOneWidget);
     expect(find.text('Tanvir Ahmed'), findsOneWidget);
     expect(find.text('tanvir.basha@gmail.com'), findsOneWidget);
     expect(find.text('+880 1712-345678'), findsOneWidget);
@@ -72,5 +77,98 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('Edit Demo Profile'), findsNothing);
+  });
+
+  testWidgets('Firebase Auth dialog and form validation test', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(const BashaLagbeApp());
+    await tester.pumpAndSettle();
+
+    // Go to Profile tab
+    await tester.tap(find.text('Profile'));
+    await tester.pumpAndSettle();
+
+    // Tap "Sign In" button in Firebase card
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+
+    // Verify AuthSheet is displayed in Sign In mode
+    expect(find.text('Sign in to BashaLagbe'), findsOneWidget);
+    expect(find.text('Email Address'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+    expect(find.text('Forgot Password?'), findsOneWidget);
+
+    // Trigger validation on empty submission
+    // Find the submit button with text 'Sign In' inside the dialog/sheet
+    final submitButton = find.widgetWithText(FilledButton, 'Sign In').last;
+    await tester.tap(submitButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Please enter your email.'), findsOneWidget);
+    expect(find.text('Please enter a password.'), findsOneWidget);
+
+    // Test Forgot Password Dialog
+    await tester.tap(find.text('Forgot Password?'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reset Password'), findsOneWidget);
+    expect(find.text('Send Link'), findsOneWidget);
+
+    // Close Forgot Password dialog
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reset Password'), findsNothing);
+
+    // Switch to Register tab
+    await tester.tap(find.text('Register'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create Your Account'), findsOneWidget);
+    expect(find.text('Full Name'), findsOneWidget);
+    expect(find.text('Confirm Password'), findsOneWidget);
+
+    // Close Auth dialog/sheet
+    await tester.tap(find.byIcon(Icons.close).last);
+    await tester.pumpAndSettle();
+    expect(find.text('Create Your Account'), findsNothing);
+  });
+
+  test('AuthService error translation unit tests', () {
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'user-not-found')),
+      contains('No account found with this email'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'wrong-password')),
+      contains('Incorrect password'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'invalid-credential')),
+      contains('Invalid email or password'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'email-already-in-use')),
+      contains('already exists'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'weak-password')),
+      contains('at least 6 characters'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'operation-not-allowed')),
+      contains('Email/password sign-in is not enabled in Firebase Console'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'too-many-requests')),
+      contains('Too many failed attempts'),
+    );
+    expect(
+      AuthService.getFriendlyErrorMessage(FirebaseAuthException(code: 'network-request-failed')),
+      contains('Network error'),
+    );
   });
 }

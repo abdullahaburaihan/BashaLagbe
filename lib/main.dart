@@ -1,12 +1,25 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:basha_lagbe/firebase_options.dart';
+import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization notice: $e');
+  }
   runApp(const BashaLagbeApp());
 }
 
@@ -766,6 +779,35 @@ class _MainShellState extends State<MainShell> {
     ),
   ];
 
+  StreamSubscription<User?>? _authSub;
+  User? _firebaseUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _firebaseUser = AuthService.instance.currentUser;
+    _authSub = AuthService.instance.authStateChanges.listen((user) {
+      if (mounted) {
+        setState(() {
+          _firebaseUser = user;
+          if (user != null) {
+            final name = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+                ? user.displayName!
+                : _userProfile.name;
+            final email = user.email ?? _userProfile.email;
+            _userProfile = _userProfile.copyWith(name: name, email: email);
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
+
   void _toggleFavourite(String id) {
     setState(() {
       if (!_favouriteIds.add(id)) {
@@ -846,6 +888,12 @@ class _MainShellState extends State<MainShell> {
       case 3:
         return ProfileScreen(
           profile: _userProfile,
+          firebaseUser: _firebaseUser,
+          onSignOut: () {
+            setState(() {
+              _firebaseUser = null;
+            });
+          },
           onProfileUpdated: (updated) {
             setState(() {
               _userProfile = updated;
