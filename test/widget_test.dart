@@ -214,4 +214,61 @@ void main() {
       contains('not found'),
     );
   });
+
+  test('FirestoreService favourite methods handle uninitialized/empty inputs safely', () async {
+    final service = FirestoreService.instance;
+
+    // Stream with empty UID should return empty stream
+    final streamEmpty = service.streamFavourites('');
+    expect(await streamEmpty.isEmpty, isTrue);
+
+    // Get favourites with empty UID should return empty set
+    final setEmpty = await service.getFavourites('');
+    expect(setEmpty, isEmpty);
+
+    // Add and remove favourite with empty inputs should complete without throwing
+    await expectLater(service.addFavourite('', ''), completes);
+    await expectLater(service.removeFavourite('', ''), completes);
+  });
+
+  testWidgets('Guest favourites toggle and synchronization across Home and Saved tabs', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(const BashaLagbeApp());
+    await tester.pumpAndSettle();
+
+    // In Home screen, initially no properties are saved
+    // Verify first property card favorite icon exists
+    final saveButton = find.byTooltip('Save this home').first;
+    expect(saveButton, findsOneWidget);
+
+    // Tap to save the first property
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    // Now it should show tooltip 'Remove from saved'
+    expect(find.byTooltip('Remove from saved'), findsOneWidget);
+
+    // Navigate to Saved tab
+    await tester.tap(find.text('Saved'));
+    await tester.pumpAndSettle();
+
+    // Verify Saved tab shows 1 saved home
+    expect(find.text('Saved Homes'), findsOneWidget);
+    expect(find.text('1 homes saved'), findsOneWidget);
+
+    // Tap remove from saved on the Saved tab
+    final removeButton = find.byTooltip('Remove from saved');
+    await tester.tap(removeButton);
+    await tester.pumpAndSettle();
+
+    // Verify empty state is displayed
+    expect(find.text('0 homes saved'), findsOneWidget);
+    expect(find.text('No saved homes yet'), findsOneWidget);
+  });
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -42,6 +43,95 @@ class FirestoreService {
       );
     }
     return FirebaseFirestore.instance;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Favourites Synchronization (Stage 2)
+  // ---------------------------------------------------------------------------
+
+  /// Real-time stream of the current authenticated user's favourite property IDs.
+  ///
+  /// Returns an empty stream if Firebase is not initialized or if [userId] is empty.
+  Stream<Set<String>> streamFavourites(String userId) {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) {
+      return const Stream.empty();
+    }
+    try {
+      return firestore
+          .collection(usersCollection)
+          .doc(cleanUid)
+          .snapshots()
+          .map((snapshot) {
+        if (!snapshot.exists) return <String>{};
+        final data = snapshot.data();
+        if (data == null || !data.containsKey('favouritePropertyIds')) {
+          return <String>{};
+        }
+        final rawList = data['favouritePropertyIds'];
+        if (rawList is List) {
+          return rawList.whereType<String>().toSet();
+        }
+        return <String>{};
+      });
+    } catch (e) {
+      debugPrint('FirestoreService.streamFavourites error: $e');
+      return const Stream.empty();
+    }
+  }
+
+  /// Fetches the user's favourite property IDs once from Firestore.
+  Future<Set<String>> getFavourites(String userId) async {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) {
+      return <String>{};
+    }
+    try {
+      final doc = await firestore.collection(usersCollection).doc(cleanUid).get();
+      if (!doc.exists) return <String>{};
+      final data = doc.data();
+      if (data == null || !data.containsKey('favouritePropertyIds')) {
+        return <String>{};
+      }
+      final rawList = data['favouritePropertyIds'];
+      if (rawList is List) {
+        return rawList.whereType<String>().toSet();
+      }
+      return <String>{};
+    } catch (e) {
+      debugPrint('FirestoreService.getFavourites error: $e');
+      return <String>{};
+    }
+  }
+
+  /// Adds a property ID to the user's favourites in Firestore.
+  ///
+  /// Uses [FieldValue.arrayUnion] to atomically prevent duplicates.
+  Future<void> addFavourite(String userId, String propertyId) async {
+    final cleanUid = userId.trim();
+    final cleanPropId = propertyId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty || cleanPropId.isEmpty) {
+      return;
+    }
+    await firestore.collection(usersCollection).doc(cleanUid).set({
+      'favouritePropertyIds': FieldValue.arrayUnion([cleanPropId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Removes a property ID from the user's favourites in Firestore.
+  ///
+  /// Uses [FieldValue.arrayRemove] to atomically remove the item.
+  Future<void> removeFavourite(String userId, String propertyId) async {
+    final cleanUid = userId.trim();
+    final cleanPropId = propertyId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty || cleanPropId.isEmpty) {
+      return;
+    }
+    await firestore.collection(usersCollection).doc(cleanUid).set({
+      'favouritePropertyIds': FieldValue.arrayRemove([cleanPropId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Translates [FirebaseException] codes into user-friendly messages.

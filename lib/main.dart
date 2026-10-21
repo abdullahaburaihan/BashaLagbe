@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/firebase_options.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
+import 'package:basha_lagbe/services/firestore_service.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
@@ -710,6 +711,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   final Set<String> _favouriteIds = <String>{};
+  Set<String> _guestFavouriteIds = <String>{};
   int _selectedIndex = 0;
 
   final List<SubmittedListing> _myListings = [
@@ -780,40 +782,131 @@ class _MainShellState extends State<MainShell> {
   ];
 
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<Set<String>>? _favouritesSub;
   User? _firebaseUser;
 
   @override
   void initState() {
     super.initState();
     _firebaseUser = AuthService.instance.currentUser;
+    if (_firebaseUser != null) {
+      _subscribeToUserFavourites(_firebaseUser!.uid);
+    }
     _authSub = AuthService.instance.authStateChanges.listen((user) {
-      if (mounted) {
-        setState(() {
-          _firebaseUser = user;
-          if (user != null) {
-            final name = (user.displayName != null && user.displayName!.trim().isNotEmpty)
-                ? user.displayName!
-                : _userProfile.name;
-            final email = user.email ?? _userProfile.email;
-            _userProfile = _userProfile.copyWith(name: name, email: email);
-          }
-        });
+      if (!mounted) return;
+      final previousUid = _firebaseUser?.uid;
+      final newUid = user?.uid;
+
+      setState(() {
+        _firebaseUser = user;
+        if (user != null) {
+          final name = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+              ? user.displayName!
+              : _userProfile.name;
+          final email = user.email ?? _userProfile.email;
+          _userProfile = _userProfile.copyWith(name: name, email: email);
+        }
+      });
+
+      if (newUid != previousUid) {
+        if (user != null) {
+          _subscribeToUserFavourites(user.uid);
+        } else {
+          _unsubscribeAndRestoreGuestFavourites();
+        }
       }
+    });
+  }
+
+  void _subscribeToUserFavourites(String uid) {
+    _favouritesSub?.cancel();
+    setState(() {
+      _favouriteIds.clear();
+    });
+    _favouritesSub = FirestoreService.instance.streamFavourites(uid).listen(
+      (cloudFavs) {
+        if (mounted) {
+          setState(() {
+            _favouriteIds.clear();
+            _favouriteIds.addAll(cloudFavs);
+          });
+        }
+      },
+      onError: (e) {
+        debugPrint('Favourites subscription error: $e');
+      },
+    );
+  }
+
+  void _unsubscribeAndRestoreGuestFavourites() {
+    _favouritesSub?.cancel();
+    _favouritesSub = null;
+    setState(() {
+      _favouriteIds.clear();
+      _favouriteIds.addAll(_guestFavouriteIds);
     });
   }
 
   @override
   void dispose() {
     _authSub?.cancel();
+    _favouritesSub?.cancel();
     super.dispose();
   }
 
-  void _toggleFavourite(String id) {
+  void _toggleFavourite(String id) async {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return;
+
+    if (_firebaseUser == null) {
+      // Guest mode: update locally in-memory
+      setState(() {
+        if (!_favouriteIds.add(cleanId)) {
+          _favouriteIds.remove(cleanId);
+        }
+        _guestFavouriteIds = Set<String>.from(_favouriteIds);
+      });
+      return;
+    }
+
+    // Authenticated mode: optimistic UI update + Firestore background sync
+    final uid = _firebaseUser!.uid;
+    final isAdding = !_favouriteIds.contains(cleanId);
+
     setState(() {
-      if (!_favouriteIds.add(id)) {
-        _favouriteIds.remove(id);
+      if (isAdding) {
+        _favouriteIds.add(cleanId);
+      } else {
+        _favouriteIds.remove(cleanId);
       }
     });
+
+    try {
+      if (isAdding) {
+        await FirestoreService.instance.addFavourite(uid, cleanId);
+      } else {
+        await FirestoreService.instance.removeFavourite(uid, cleanId);
+      }
+    } catch (e) {
+      if (mounted) {
+        // Rollback optimistic update on error
+        setState(() {
+          if (isAdding) {
+            _favouriteIds.remove(cleanId);
+          } else {
+            _favouriteIds.add(cleanId);
+          }
+        });
+        final msg = FirestoreService.getFriendlyErrorMessage(e);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update saved home: $msg'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   void _onDestinationSelected(int index) {
@@ -890,6 +983,7 @@ class _MainShellState extends State<MainShell> {
           profile: _userProfile,
           firebaseUser: _firebaseUser,
           onSignOut: () {
+            _unsubscribeAndRestoreGuestFavourites();
             setState(() {
               _firebaseUser = null;
             });
