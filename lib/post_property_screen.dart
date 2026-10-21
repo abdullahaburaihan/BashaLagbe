@@ -66,11 +66,13 @@ class PostPropertyScreen extends StatefulWidget {
     required this.myListings,
     required this.onListingSubmitted,
     required this.onListingDeleted,
+    this.initialTab = 0,
   });
 
   final List<SubmittedListing> myListings;
   final ValueChanged<SubmittedListing> onListingSubmitted;
   final ValueChanged<String> onListingDeleted;
+  final int initialTab;
 
   @override
   State<PostPropertyScreen> createState() => _PostPropertyScreenState();
@@ -79,6 +81,20 @@ class PostPropertyScreen extends StatefulWidget {
 class _PostPropertyScreenState extends State<PostPropertyScreen> {
   int _activeTab = 0; // 0 = Post Wizard, 1 = My Listings
   int _currentStep = 0; // 0..4 (Steps 1 to 5)
+
+  @override
+  void initState() {
+    super.initState();
+    _activeTab = widget.initialTab;
+  }
+
+  @override
+  void didUpdateWidget(covariant PostPropertyScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab != widget.initialTab) {
+      _activeTab = widget.initialTab;
+    }
+  }
 
   // Step 1 Controllers & State
   final TextEditingController _titleController = TextEditingController();

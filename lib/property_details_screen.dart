@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:basha_lagbe/main.dart';
+import 'package:basha_lagbe/profile_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Property Photo Model
@@ -39,11 +40,13 @@ class PropertyDetailsScreen extends StatefulWidget {
     required this.property,
     required this.favouriteIds,
     required this.onToggleFavourite,
+    this.onRentalRequestSubmitted,
   });
 
   final Property property;
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
+  final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
 
   @override
   State<PropertyDetailsScreen> createState() => _PropertyDetailsScreenState();
@@ -115,10 +118,11 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
       builder: (modalContext) {
         return RequestToRentSheet(
           property: widget.property,
-          onSubmitted: () {
+          onSubmitted: (request) {
             setState(() {
               _requestSubmittedLocally = true;
             });
+            widget.onRentalRequestSubmitted?.call(request);
             Navigator.of(modalContext).pop();
             showFriendlyMessage(
               context,
@@ -1194,7 +1198,7 @@ class RequestToRentSheet extends StatefulWidget {
   });
 
   final Property property;
-  final VoidCallback onSubmitted;
+  final ValueChanged<RentalRequest> onSubmitted;
 
   @override
   State<RequestToRentSheet> createState() => _RequestToRentSheetState();
@@ -1441,7 +1445,23 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: widget.onSubmitted,
+                onPressed: () {
+                  final request = RentalRequest(
+                    id: 'REQ-${DateTime.now().millisecondsSinceEpoch % 10000}',
+                    property: widget.property,
+                    renterName: _nameController.text.trim().isNotEmpty
+                        ? _nameController.text.trim()
+                        : 'Demo Renter',
+                    renterPhone: _phoneController.text.trim().isNotEmpty
+                        ? _phoneController.text.trim()
+                        : '01700000000',
+                    preferredMoveIn: _selectedMoveIn,
+                    message: _noteController.text.trim(),
+                    requestedAt: DateTime.now(),
+                    status: 'Pending Landlord Response',
+                  );
+                  widget.onSubmitted(request);
+                },
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.green,
                   foregroundColor: Colors.white,

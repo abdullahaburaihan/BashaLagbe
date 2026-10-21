@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
+import 'package:basha_lagbe/profile_screen.dart';
 
 void main() {
   runApp(const BashaLagbeApp());
@@ -743,6 +744,28 @@ class _MainShellState extends State<MainShell> {
     ),
   ];
 
+  int _postInitialTab = 0;
+
+  UserProfile _userProfile = const UserProfile(
+    name: 'Tanvir Ahmed',
+    email: 'tanvir.basha@gmail.com',
+    phone: '+880 1712-345678',
+    role: 'Verified Renter & Host',
+  );
+
+  final List<RentalRequest> _rentalRequests = [
+    RentalRequest(
+      id: 'REQ-4819',
+      property: demoProperties[0],
+      renterName: 'Tanvir Ahmed',
+      renterPhone: '+880 1712-345678',
+      preferredMoveIn: '1st of next month',
+      message: 'We are a family of 4. Is the building lift functional 24 hours during load shedding?',
+      requestedAt: DateTime(2026, 10, 20, 16, 45),
+      status: 'Pending Landlord Response',
+    ),
+  ];
+
   void _toggleFavourite(String id) {
     setState(() {
       if (!_favouriteIds.add(id)) {
@@ -752,13 +775,42 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onDestinationSelected(int index) {
-    if (index == 3) {
-      showFriendlyMessage(context, 'The Profile feature is coming soon!');
-      return;
-    }
-
     setState(() {
+      if (index == 2) {
+        _postInitialTab = 0;
+      }
       _selectedIndex = index;
+    });
+  }
+
+  void _navigateToMyListings() {
+    setState(() {
+      _postInitialTab = 1;
+      _selectedIndex = 2;
+    });
+  }
+
+  void _navigateToSaved() {
+    setState(() {
+      _selectedIndex = 1;
+    });
+  }
+
+  void _navigateToHome() {
+    setState(() {
+      _selectedIndex = 0;
+    });
+  }
+
+  void _handleRentalRequestSubmitted(RentalRequest request) {
+    setState(() {
+      _rentalRequests.insert(0, request);
+    });
+  }
+
+  void _handleCancelRentalRequest(String id) {
+    setState(() {
+      _rentalRequests.removeWhere((r) => r.id == id);
     });
   }
 
@@ -768,14 +820,17 @@ class _MainShellState extends State<MainShell> {
         return HomeScreen(
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
+          onRentalRequestSubmitted: _handleRentalRequestSubmitted,
         );
       case 1:
         return SavedScreen(
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
+          onRentalRequestSubmitted: _handleRentalRequestSubmitted,
         );
       case 2:
         return PostPropertyScreen(
+          initialTab: _postInitialTab,
           myListings: _myListings,
           onListingSubmitted: (newListing) {
             setState(() {
@@ -788,10 +843,27 @@ class _MainShellState extends State<MainShell> {
             });
           },
         );
+      case 3:
+        return ProfileScreen(
+          profile: _userProfile,
+          onProfileUpdated: (updated) {
+            setState(() {
+              _userProfile = updated;
+            });
+          },
+          listingsCount: _myListings.length,
+          savedCount: _favouriteIds.length,
+          rentalRequests: _rentalRequests,
+          onCancelRentalRequest: _handleCancelRentalRequest,
+          onNavigateToMyListings: _navigateToMyListings,
+          onNavigateToSaved: _navigateToSaved,
+          onNavigateToHome: _navigateToHome,
+        );
       default:
         return HomeScreen(
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
+          onRentalRequestSubmitted: _handleRentalRequestSubmitted,
         );
     }
   }
@@ -849,10 +921,12 @@ class SavedScreen extends StatelessWidget {
     super.key,
     required this.favouriteIds,
     required this.onToggleFavourite,
+    this.onRentalRequestSubmitted,
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
+  final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -952,6 +1026,7 @@ class SavedScreen extends StatelessWidget {
                                   property: property,
                                   favouriteIds: favouriteIds,
                                   onToggleFavourite: onToggleFavourite,
+                                  onRentalRequestSubmitted: onRentalRequestSubmitted,
                                 ),
                               ),
                             );
@@ -974,10 +1049,12 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.favouriteIds,
     required this.onToggleFavourite,
+    this.onRentalRequestSubmitted,
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
+  final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1090,6 +1167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             property: property,
                             favouriteIds: widget.favouriteIds,
                             onToggleFavourite: widget.onToggleFavourite,
+                            onRentalRequestSubmitted: widget.onRentalRequestSubmitted,
                           ),
                         ),
                       );
