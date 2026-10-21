@@ -34,15 +34,20 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 
-    // Verify Profile header, Firebase Auth banner, and demo user details
+    // Verify Profile header and signed-out card
     expect(find.text('My Profile'), findsOneWidget);
-    expect(find.text('Firebase Authentication'), findsOneWidget);
+    expect(find.text('Welcome to BashaLagbe'), findsOneWidget);
     expect(find.text('Sign In'), findsOneWidget);
     expect(find.text('Create Account'), findsOneWidget);
-    expect(find.text('Tanvir Ahmed'), findsOneWidget);
-    expect(find.text('tanvir.basha@gmail.com'), findsOneWidget);
-    expect(find.text('+880 1712-345678'), findsOneWidget);
-    expect(find.text('Edit Profile Details'), findsOneWidget);
+    expect(
+      find.text('Currently browsing as guest. Saved homes and search work locally.'),
+      findsOneWidget,
+    );
+
+    // Verify that the old demo profile (Tanvir Ahmed) is NOT shown when signed out
+    expect(find.text('Tanvir Ahmed'), findsNothing);
+    expect(find.text('tanvir.basha@gmail.com'), findsNothing);
+    expect(find.text('Edit Demo Profile'), findsNothing);
 
     // Verify My Activity section
     expect(find.text('My Activity'), findsOneWidget);
@@ -66,17 +71,7 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('My Profile'), findsOneWidget);
-
-    // 5. Test opening Edit Profile modal
-    await tester.tap(find.text('Edit Profile Details'));
-    await tester.pumpAndSettle();
-    expect(find.text('Edit Demo Profile'), findsOneWidget);
-    expect(find.text('Save Edits'), findsOneWidget);
-
-    // Cancel edit modal
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(find.text('Edit Demo Profile'), findsNothing);
+    expect(find.text('Welcome to BashaLagbe'), findsOneWidget);
   });
 
   testWidgets('Firebase Auth dialog and form validation test', (WidgetTester tester) async {
@@ -94,8 +89,9 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
 
-    // Tap "Sign In" button in Firebase card
-    await tester.tap(find.text('Sign In'));
+    // Tap "Sign In" button in signed-out card
+    final signInButton = find.widgetWithText(FilledButton, 'Sign In');
+    await tester.tap(signInButton);
     await tester.pumpAndSettle();
 
     // Verify AuthSheet is displayed in Sign In mode

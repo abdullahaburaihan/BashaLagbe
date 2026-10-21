@@ -236,8 +236,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
-
     return SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -263,9 +261,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Manage your demo account and view all your rental activity.',
-                        style: TextStyle(
+                      Text(
+                        widget.firebaseUser != null
+                            ? 'Manage your account and view all your rental activity.'
+                            : 'Sign in or explore rentals and saved homes as a guest.',
+                        style: const TextStyle(
                           fontSize: 13.5,
                           color: AppColors.textMuted,
                         ),
@@ -276,19 +276,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
 
               // -------------------------------------------------------------
-              // Profile Identity Card (Firebase Authenticated or Auth Sync + Demo)
+              // Profile Identity Card (Firebase Authenticated or Sign-In Prompt)
               // -------------------------------------------------------------
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
                   child: widget.firebaseUser != null
                       ? _buildFirebaseAuthCard(widget.firebaseUser!)
-                      : Column(
-                          children: [
-                            _buildFirebaseSignInCard(),
-                            _buildDemoProfileCard(profile),
-                          ],
-                        ),
+                      : _buildSignedOutCard(),
                 ),
               ),
 
@@ -867,104 +862,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildFirebaseSignInCard() {
+  Widget _buildSignedOutCard() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: const BoxDecoration(
-                  color: AppColors.lightGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.cloud_sync_outlined, color: AppColors.green, size: 22),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Firebase Authentication',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                    Text(
-                      'Sign in or register to sync properties and rental requests.',
-                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _openAuthSheet(isRegister: false),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.login, size: 16),
-                  label: const Text(
-                    'Sign In',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _openAuthSheet(isRegister: true),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.darkGreen,
-                    side: const BorderSide(color: AppColors.green),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.person_add_alt_outlined, size: 16),
-                  label: const Text(
-                    'Create Account',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDemoProfileCard(UserProfile profile) {
-    return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -982,63 +882,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Row(
             children: [
-              // Avatar
               Container(
-                width: 64,
-                height: 64,
+                width: 56,
+                height: 56,
                 decoration: const BoxDecoration(
                   color: AppColors.lightGreen,
                   shape: BoxShape.circle,
                 ),
-                child: Center(
-                  child: Text(
-                    profile.name.trim().isNotEmpty
-                        ? profile.name.trim().substring(0, 1).toUpperCase()
-                        : 'U',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.darkGreen,
-                    ),
-                  ),
+                child: const Icon(
+                  Icons.person_outline_rounded,
+                  color: AppColors.green,
+                  size: 30,
                 ),
               ),
               const SizedBox(width: 16),
-              // Name & Role
-              Expanded(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            profile.name,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.textDark,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.lightGreen,
-                        borderRadius: BorderRadius.circular(6),
+                    Text(
+                      'Welcome to BashaLagbe',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
                       ),
-                      child: Text(
-                        profile.role,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.darkGreen,
-                        ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Sign in to access your profile, sync listings, and manage rental requests.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textMuted,
+                        height: 1.3,
                       ),
                     ),
                   ],
@@ -1046,93 +922,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ),
-
-          const SizedBox(height: 16),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 14),
-
-          // Contact Info
+          const SizedBox(height: 18),
           Row(
             children: [
-              const Icon(Icons.email_outlined, size: 16, color: AppColors.green),
-              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  profile.email,
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    color: AppColors.textDark,
-                    fontWeight: FontWeight.w500,
+                child: FilledButton.icon(
+                  onPressed: () => _openAuthSheet(isRegister: false),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.login_rounded, size: 18),
+                  label: const Text(
+                    'Sign In',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openAuthSheet(isRegister: true),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.darkGreen,
+                    side: const BorderSide(color: AppColors.green),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.person_add_alt_outlined, size: 18),
+                  label: const Text(
+                    'Create Account',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.phone_outlined, size: 16, color: AppColors.green),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  profile.phone,
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    color: AppColors.textDark,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
           const SizedBox(height: 14),
-
-          // Demo profile disclosure notice
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: AppColors.amberLight,
+              color: AppColors.background,
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
             ),
             child: const Row(
               children: [
-                Icon(Icons.info_outline, size: 14, color: AppColors.amber),
+                Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
                 SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Demo Profile: Saved locally in-memory for testing.',
+                    'Currently browsing as guest. Saved homes and search work locally.',
                     style: TextStyle(
                       fontSize: 11.5,
-                      color: AppColors.textDark,
-                      fontWeight: FontWeight.w500,
+                      color: AppColors.textMuted,
                     ),
                   ),
                 ),
               ],
-            ),
-          ),
-
-          const SizedBox(height: 14),
-
-          // Edit Profile Button
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _openEditProfileSheet,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.darkGreen,
-                side: const BorderSide(color: AppColors.green),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              icon: const Icon(Icons.edit_outlined, size: 16),
-              label: const Text(
-                'Edit Profile Details',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-              ),
             ),
           ),
         ],
@@ -1240,7 +1093,7 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
-                      'Edit Demo Profile',
+                      'Edit Profile',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -1261,18 +1114,18 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.amberLight,
+                  color: AppColors.lightGreen,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.amber.withAlpha(90)),
+                  border: Border.all(color: AppColors.green.withValues(alpha: 0.3)),
                 ),
                 child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline, size: 20, color: AppColors.amber),
+                    Icon(Icons.info_outline, size: 20, color: AppColors.green),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Local Demo Mode: Changes are preserved locally while the app is running. This is not tied to a remote backend.',
+                        'Updating your profile syncs your display name across BashaLagbe.',
                         style: TextStyle(
                           fontSize: 12.5,
                           height: 1.35,
