@@ -389,6 +389,34 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (property.isDemo) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.amberLight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.amber.withAlpha(90)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, size: 16, color: AppColors.amber),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Demo Preview Listing — Fictional demonstration listing for preview purposes only.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textDark,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
                   // Rent + Type Badge
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,

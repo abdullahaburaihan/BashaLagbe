@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:basha_lagbe/services/firestore_service.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 
@@ -17,6 +19,19 @@ enum ListingStatus {
   final String label;
   final Color foreground;
   final Color background;
+
+  static ListingStatus fromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'approved':
+        return ListingStatus.approved;
+      case 'rejected':
+        return ListingStatus.rejected;
+      case 'pending':
+      case 'pendingreview':
+      default:
+        return ListingStatus.pendingReview;
+    }
+  }
 }
 
 class WizardPhotoItem {
@@ -46,6 +61,8 @@ class SubmittedListing {
     required this.submittedAt,
     this.photos = const [],
     this.moderationNote,
+    this.ownerId,
+    this.isDemo = false,
   });
 
   final String id;
@@ -54,6 +71,8 @@ class SubmittedListing {
   final DateTime submittedAt;
   final List<WizardPhotoItem> photos;
   final String? moderationNote;
+  final String? ownerId;
+  final bool isDemo;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +86,16 @@ class PostPropertyScreen extends StatefulWidget {
     required this.onListingSubmitted,
     required this.onListingDeleted,
     this.initialTab = 0,
+    this.firebaseUser,
+    this.onRequireSignIn,
   });
 
   final List<SubmittedListing> myListings;
   final ValueChanged<SubmittedListing> onListingSubmitted;
   final ValueChanged<String> onListingDeleted;
   final int initialTab;
+  final User? firebaseUser;
+  final VoidCallback? onRequireSignIn;
 
   @override
   State<PostPropertyScreen> createState() => _PostPropertyScreenState();
@@ -81,6 +104,7 @@ class PostPropertyScreen extends StatefulWidget {
 class _PostPropertyScreenState extends State<PostPropertyScreen> {
   int _activeTab = 0; // 0 = Post Wizard, 1 = My Listings
   int _currentStep = 0; // 0..4 (Steps 1 to 5)
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -348,112 +372,170 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
   // -------------------------------------------------------------------------
   // Submission
   // -------------------------------------------------------------------------
-  void _submitListing() {
+  void _submitListing() async {
     if (!_validateCurrentStep()) return;
+
+    if (widget.firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please sign in with a landlord account to post a property.'),
+          backgroundColor: AppColors.darkGreen,
+          action: SnackBarAction(
+            label: 'Sign In',
+            textColor: Colors.white,
+            onPressed: () => widget.onRequireSignIn?.call(),
+          ),
+        ),
+      );
+      widget.onRequireSignIn?.call();
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
 
     final rent = int.tryParse(_rentController.text.replaceAll(',', '').trim()) ?? 15000;
     final deposit = int.tryParse(_depositController.text.replaceAll(',', '').trim()) ?? (rent * 2);
     final size = int.tryParse(_sizeController.text.replaceAll(',', '').trim()) ?? 1000;
 
-    // Convert wizard photos into PropertyPhoto list
-    final List<PropertyPhoto> propertyPhotos = _photos.map((item) {
-      return PropertyPhoto(
-        label: item.label,
-        imageUrl: item.networkUrl,
-        icon: _propertyType == PropertyType.bachelor
-            ? Icons.single_bed_outlined
-            : _propertyType == PropertyType.shared
-                ? Icons.groups_outlined
-                : Icons.apartment_outlined,
-        gradientStart: AppColors.green,
-        gradientEnd: AppColors.darkGreen,
-      );
+    // Build photo list for Firestore
+    final List<Map<String, dynamic>> firestorePhotos = _photos.map((item) {
+      return {
+        'label': item.label,
+        'imageUrl': item.networkUrl,
+        'storagePath': null,
+        'isCover': item.isCover,
+      };
     }).toList();
 
     // Fallback if no photos were added
-    if (propertyPhotos.isEmpty) {
-      propertyPhotos.add(
-        PropertyPhoto(
-          label: 'Main Living Space',
-          imageUrl:
-              'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
-          gradientStart: AppColors.green,
-          gradientEnd: AppColors.darkGreen,
-        ),
-      );
+    if (firestorePhotos.isEmpty) {
+      firestorePhotos.add({
+        'label': 'Main Living Space',
+        'imageUrl':
+            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
+        'storagePath': null,
+        'isCover': true,
+      });
     }
 
-    // Build adaptive subtitle/facilities
-    final List<String> facilitiesList = _selectedFacilities.toList();
+    final facilitiesList = _selectedFacilities.toList();
+    final highlightsList = [
+      if (_landmarkController.text.trim().isNotEmpty) _landmarkController.text.trim(),
+      'Local market & grocery stores nearby',
+      '24/7 public transport available',
+    ];
 
-    final newProperty = Property(
-      id: 'submitted-${DateTime.now().millisecondsSinceEpoch}',
-      title: _titleController.text.trim(),
-      area: _areaController.text.trim().isNotEmpty
-          ? _areaController.text.trim()
-          : '$_selectedDivision, Bangladesh',
-      landmark: _landmarkController.text.trim().isNotEmpty
-          ? _landmarkController.text.trim()
-          : 'Near central hub',
-      fullAddress: _addressController.text.trim().isNotEmpty
-          ? _addressController.text.trim()
-          : _areaController.text.trim(),
-      rentPerMonth: rent,
-      depositAmount: deposit,
-      sizeSqFt: size,
-      floorLevel: _floorController.text.trim().isNotEmpty
-          ? _floorController.text.trim()
-          : '3rd Floor',
-      balconies: _propertyType == PropertyType.family
-          ? _balconies
-          : _attachedBalcony
-              ? 1
-              : 0,
-      type: _propertyType,
-      bedrooms: _propertyType == PropertyType.family
-          ? _bedrooms
-          : 1,
-      bathrooms: _propertyType == PropertyType.family
-          ? _bathrooms
-          : _attachedBath
-              ? 1
-              : 1,
-      availability: _availabilityStatus,
-      availableNow: _availabilityStatus.toLowerCase().contains('now'),
-      icon: _propertyType == PropertyType.family
-          ? Icons.apartment
-          : _propertyType == PropertyType.bachelor
-              ? Icons.home_work
-              : Icons.groups,
-      gradientStart: AppColors.green,
-      gradientEnd: AppColors.darkGreen,
-      description: _descriptionController.text.trim().isNotEmpty
+    final propertyData = {
+      'title': _titleController.text.trim(),
+      'description': _descriptionController.text.trim().isNotEmpty
           ? _descriptionController.text.trim()
           : 'Well-maintained rental home available for responsible tenants.',
-      facilities: facilitiesList,
-      nearbyHighlights: [
-        if (_landmarkController.text.trim().isNotEmpty) _landmarkController.text.trim(),
-        'Local market & grocery stores nearby',
-        '24/7 public transport available',
-      ],
-      photos: propertyPhotos,
-      utilityNotice: _utilityController.text.trim().isNotEmpty
+      'propertyType': _propertyType.name,
+      'division': _selectedDivision,
+      'area': _areaController.text.trim().isNotEmpty
+          ? _areaController.text.trim()
+          : '$_selectedDivision, Bangladesh',
+      'fullAddress': _addressController.text.trim().isNotEmpty
+          ? _addressController.text.trim()
+          : _areaController.text.trim(),
+      'landmark': _landmarkController.text.trim().isNotEmpty
+          ? _landmarkController.text.trim()
+          : 'Near central hub',
+      'rentPerMonth': rent,
+      'depositAmount': deposit,
+      'sizeSqFt': size,
+      'floorLevel': _floorController.text.trim().isNotEmpty
+          ? _floorController.text.trim()
+          : '3rd Floor',
+      'bedrooms': _propertyType == PropertyType.family ? _bedrooms : 1,
+      'bathrooms': _propertyType == PropertyType.family ? _bathrooms : (_attachedBath ? 1 : 1),
+      'balconies': _propertyType == PropertyType.family ? _balconies : (_attachedBalcony ? 1 : 0),
+      'facilities': facilitiesList,
+      'availability': _availabilityStatus,
+      'availableNow': _availabilityStatus.toLowerCase().contains('now'),
+      'preferredTenant': _preferredTenant,
+      'utilityNotice': _utilityController.text.trim().isNotEmpty
           ? _utilityController.text.trim()
           : 'Utilities as per usage/prepaid meter.',
-    );
+      'nearbyHighlights': highlightsList,
+      'photos': firestorePhotos,
+    };
 
-    final submitted = SubmittedListing(
-      id: 'BL-${DateTime.now().millisecondsSinceEpoch % 10000}',
-      property: newProperty,
-      status: ListingStatus.pendingReview,
-      submittedAt: DateTime.now(),
-      photos: List.from(_photos),
-    );
+    try {
+      final docId = await FirestoreService.instance.createProperty(
+        ownerId: widget.firebaseUser!.uid,
+        ownerEmail: widget.firebaseUser!.email ?? '',
+        data: propertyData,
+      );
 
-    widget.onListingSubmitted(submitted);
+      final propertyPhotos = firestorePhotos.map((p) => PropertyPhoto(
+        label: p['label'] as String,
+        imageUrl: p['imageUrl'] as String?,
+      )).toList();
 
-    // Show confirmation modal
-    _showSubmissionSuccessDialog(submitted);
+      final newProperty = Property(
+        id: docId,
+        title: _titleController.text.trim(),
+        area: propertyData['area'] as String,
+        landmark: propertyData['landmark'] as String,
+        fullAddress: propertyData['fullAddress'] as String?,
+        rentPerMonth: rent,
+        depositAmount: deposit,
+        sizeSqFt: size,
+        floorLevel: propertyData['floorLevel'] as String,
+        balconies: propertyData['balconies'] as int,
+        type: _propertyType,
+        bedrooms: propertyData['bedrooms'] as int,
+        bathrooms: propertyData['bathrooms'] as int,
+        availability: _availabilityStatus,
+        availableNow: _availabilityStatus.toLowerCase().contains('now'),
+        icon: _propertyType == PropertyType.family
+            ? Icons.apartment
+            : _propertyType == PropertyType.bachelor
+                ? Icons.home_work
+                : Icons.groups,
+        gradientStart: AppColors.green,
+        gradientEnd: AppColors.darkGreen,
+        description: propertyData['description'] as String,
+        facilities: facilitiesList,
+        nearbyHighlights: highlightsList,
+        photos: propertyPhotos,
+        utilityNotice: propertyData['utilityNotice'] as String,
+        isDemo: false,
+      );
+
+      final submitted = SubmittedListing(
+        id: docId,
+        property: newProperty,
+        status: ListingStatus.pendingReview,
+        submittedAt: DateTime.now(),
+        photos: List.from(_photos),
+        ownerId: widget.firebaseUser!.uid,
+        isDemo: false,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+        widget.onListingSubmitted(submitted);
+        _showSubmissionSuccessDialog(submitted);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(FirestoreService.getFriendlyErrorMessage(e)),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    }
   }
 
   void _showSubmissionSuccessDialog(SubmittedListing listing) {
@@ -503,18 +585,18 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.amberLight,
+                  color: AppColors.lightGreen,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.amber.withAlpha(90)),
+                  border: Border.all(color: AppColors.green.withAlpha(90)),
                 ),
                 child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline, size: 20, color: AppColors.amber),
+                    Icon(Icons.cloud_done_outlined, size: 20, color: AppColors.green),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Local Demo Notice: Your listing is saved locally with status "Pending Review". In the live app, moderation verifies ownership before publishing.',
+                        'Cloud Firestore Notice: Your listing is saved with status "Pending Review". Once approved by moderation, it will appear publicly on the Home screen. You can track and manage it under My Listings.',
                         style: TextStyle(fontSize: 12.5, height: 1.35, color: AppColors.textDark),
                       ),
                     ),
@@ -731,6 +813,9 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
   Widget _buildWizardBody() {
     return Column(
       children: [
+        if (widget.firebaseUser == null)
+          _buildGuestBanner(),
+
         // Step Tracker
         _buildStepTracker(),
 
@@ -746,6 +831,54 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
         // Bottom Navigation Bar (Back & Continue buttons)
         _buildWizardBottomNav(),
       ],
+    );
+  }
+
+  Widget _buildGuestBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.lightGreen,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.green.withAlpha(90)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: AppColors.darkGreen, size: 22),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Landlord Sign-In Required',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: AppColors.darkGreen,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Browsing as guest. Sign in to submit and persist your property to Cloud Firestore.',
+                  style: TextStyle(fontSize: 11.5, color: AppColors.textDark),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: widget.onRequireSignIn,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.green,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+            child: const Text('Sign In', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -857,19 +990,32 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
           ],
           Expanded(
             child: FilledButton.icon(
-              onPressed: _currentStep == 4 ? _submitListing : _goToNextStep,
+              onPressed: _isSubmitting
+                  ? null
+                  : (_currentStep == 4 ? _submitListing : _goToNextStep),
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.green,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              icon: Icon(
-                _currentStep == 4 ? Icons.cloud_upload_outlined : Icons.arrow_forward,
-                size: 20,
-              ),
+              icon: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(
+                      _currentStep == 4 ? Icons.cloud_upload_outlined : Icons.arrow_forward,
+                      size: 20,
+                    ),
               label: Text(
-                _currentStep == 4 ? 'Submit Listing for Review' : 'Continue to Next Step',
+                _isSubmitting
+                    ? 'Submitting to Firestore...'
+                    : (_currentStep == 4 ? 'Submit Listing for Review' : 'Continue to Next Step'),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
             ),
@@ -2050,6 +2196,45 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
   // VIEW: My Listings Section
   // =========================================================================
   Widget _buildMyListingsBody() {
+    if (widget.firebaseUser == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: AppColors.lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.lock_outline, size: 48, color: AppColors.green),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Sign In to View My Listings',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your properties are securely stored in Cloud Firestore under your landlord account. Sign in to view, edit, or remove listings.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: widget.onRequireSignIn,
+                style: FilledButton.styleFrom(backgroundColor: AppColors.green),
+                icon: const Icon(Icons.login),
+                label: const Text('Sign In or Register'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final listings = widget.myListings;
 
     if (listings.isEmpty) {
@@ -2209,7 +2394,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                 ),
               ),
 
-              // Tracking & Demo Notice
+              // Tracking & Source Notice
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 color: AppColors.background,
@@ -2222,9 +2407,9 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted),
                     ),
                     const Spacer(),
-                    const Text(
-                      'Local Demo Listing',
-                      style: TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                    Text(
+                      item.isDemo ? 'Demo Listing' : 'Cloud Listing (Firestore)',
+                      style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
                     ),
                   ],
                 ),
@@ -2237,7 +2422,6 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                   children: [
                     TextButton.icon(
                       onPressed: () {
-                        // Open Property Details Preview
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => PropertyDetailsScreen(
@@ -2254,9 +2438,14 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                     ),
                     const Spacer(),
                     IconButton(
-                      tooltip: 'Delete demo listing',
+                      tooltip: 'Edit listing details',
+                      icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.darkGreen),
+                      onPressed: () => _showEditListingDialog(item),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete listing',
                       icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.heart),
-                      onPressed: () => _confirmDeleteListing(item.id),
+                      onPressed: () => _confirmDeleteListing(item),
                     ),
                   ],
                 ),
@@ -2268,13 +2457,194 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
     );
   }
 
-  void _confirmDeleteListing(String id) {
+  void _showEditListingDialog(SubmittedListing item) {
+    final property = item.property;
+    final rentController = TextEditingController(text: '${property.rentPerMonth}');
+    final depositController = TextEditingController(
+      text: property.depositAmount != null ? '${property.depositAmount}' : '',
+    );
+    final descController = TextEditingController(text: property.description);
+    String selectedAvailability = property.availability;
+    bool isSaving = false;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.edit_note, color: AppColors.green),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Edit: ${property.title}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Update key details for this listing. Status and ownership remain protected.',
+                      style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: rentController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Monthly Rent (৳)',
+                        prefixIcon: Icon(Icons.payments_outlined, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: depositController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Deposit Amount (৳)',
+                        prefixIcon: Icon(Icons.account_balance_wallet_outlined, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedAvailability.toLowerCase().contains('now')
+                          ? 'Available now'
+                          : selectedAvailability,
+                      decoration: const InputDecoration(
+                        labelText: 'Availability',
+                        prefixIcon: Icon(Icons.event_available, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Available now', child: Text('Available now')),
+                        DropdownMenuItem(
+                          value: 'Available from 1st of next month',
+                          child: Text('Available from 1st of next month'),
+                        ),
+                        DropdownMenuItem(value: 'Booked / Unavailable', child: Text('Booked / Unavailable')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() {
+                            selectedAvailability = val;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final newRent =
+                              int.tryParse(rentController.text.trim()) ?? property.rentPerMonth;
+                          final newDeposit = int.tryParse(depositController.text.trim());
+                          final newDesc = descController.text.trim();
+
+                          final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+                          if (widget.firebaseUser == null || item.isDemo) {
+                            Navigator.of(dialogContext).pop();
+                            scaffoldMessenger.showSnackBar(
+                              const SnackBar(content: Text('Demo listing updated locally.')),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            await FirestoreService.instance.updateProperty(
+                              propertyId: item.id,
+                              ownerId: widget.firebaseUser!.uid,
+                              updates: {
+                                'rentPerMonth': newRent,
+                                'depositAmount': newDeposit,
+                                'availability': selectedAvailability,
+                                'availableNow': selectedAvailability.toLowerCase().contains('now'),
+                                'description': newDesc.isNotEmpty ? newDesc : property.description,
+                              },
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                            scaffoldMessenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('Listing updated successfully in Cloud Firestore.'),
+                                backgroundColor: AppColors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            setDialogState(() {
+                              isSaving = false;
+                            });
+                            scaffoldMessenger.showSnackBar(
+                              SnackBar(
+                                content: Text(FirestoreService.getFriendlyErrorMessage(e)),
+                                backgroundColor: Colors.red.shade700,
+                              ),
+                            );
+                          }
+                        },
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.green),
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text('Save Changes'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteListing(SubmittedListing item) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete Demo Listing?'),
-          content: const Text('Are you sure you want to remove this locally submitted listing?'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Delete Listing?'),
+          content: Text(
+            item.isDemo
+                ? 'Are you sure you want to remove this demo listing?'
+                : 'Are you sure you want to permanently delete this listing from Cloud Firestore? This action cannot be undone.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -2282,10 +2652,38 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
             ),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppColors.heart),
-              onPressed: () {
+              onPressed: () async {
                 Navigator.of(dialogContext).pop();
-                widget.onListingDeleted(id);
-                showFriendlyMessage(context, 'Demo listing removed.');
+                if (widget.firebaseUser != null && !item.isDemo) {
+                  try {
+                    await FirestoreService.instance.deleteProperty(
+                      propertyId: item.id,
+                      ownerId: widget.firebaseUser!.uid,
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Listing deleted from Cloud Firestore.'),
+                          backgroundColor: AppColors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(FirestoreService.getFriendlyErrorMessage(e)),
+                          backgroundColor: Colors.red.shade700,
+                        ),
+                      );
+                    }
+                  }
+                } else {
+                  widget.onListingDeleted(item.id);
+                  if (mounted) {
+                    showFriendlyMessage(context, 'Listing removed.');
+                  }
+                }
               },
               child: const Text('Delete'),
             ),

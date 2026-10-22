@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/main.dart';
+import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
 
@@ -270,5 +271,92 @@ void main() {
     // Verify empty state is displayed
     expect(find.text('0 homes saved'), findsOneWidget);
     expect(find.text('No saved homes yet'), findsOneWidget);
+  });
+
+  test('FirestoreService property converters handle empty/partial data cleanly', () {
+    final emptyData = <String, dynamic>{};
+    final prop = FirestoreService.propertyFromFirestore('test-123', emptyData);
+    expect(prop.id, 'test-123');
+    expect(prop.title, 'Rental Property');
+    expect(prop.rentPerMonth, 0);
+    expect(prop.type, PropertyType.family);
+    expect(prop.isDemo, isFalse);
+
+    final listing = FirestoreService.submittedListingFromFirestore('sub-456', {
+      'title': 'Test Flat',
+      'rentPerMonth': 20000,
+      'status': 'pending',
+      'ownerId': 'user-1',
+    });
+    expect(listing.id, 'sub-456');
+    expect(listing.property.title, 'Test Flat');
+    expect(listing.property.rentPerMonth, 20000);
+    expect(listing.status, ListingStatus.pendingReview);
+    expect(listing.ownerId, 'user-1');
+  });
+
+  test('FirestoreService property methods handle uninitialized/empty inputs safely', () async {
+    final service = FirestoreService.instance;
+
+    // Streams should return empty without throwing
+    expect(await service.streamApprovedProperties().isEmpty, isTrue);
+    expect(await service.streamUserListings('').isEmpty, isTrue);
+
+    // Empty user ID calls should throw unauthenticated/invalid-argument FirebaseException
+    await expectLater(
+      () => service.createProperty(ownerId: '', ownerEmail: '', data: {}),
+      throwsA(isA<FirebaseException>()),
+    );
+    await expectLater(
+      () => service.updateProperty(propertyId: '', ownerId: '', updates: {}),
+      throwsA(isA<FirebaseException>()),
+    );
+    await expectLater(
+      () => service.deleteProperty(propertyId: '', ownerId: ''),
+      throwsA(isA<FirebaseException>()),
+    );
+  });
+
+  testWidgets('Post Property screen shows landlord sign-in banner and opens auth modal', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(const BashaLagbeApp());
+    await tester.pumpAndSettle();
+
+    // Navigate to Post tab
+    await tester.tap(find.text('Post'));
+    await tester.pumpAndSettle();
+
+    // Verify Landlord Sign-In Required banner is shown
+    expect(find.text('Landlord Sign-In Required'), findsOneWidget);
+    expect(find.text('Browsing as guest. Sign in to submit and persist your property to Cloud Firestore.'), findsOneWidget);
+
+    // Tap Sign In button on the banner
+    final signInBtn = find.widgetWithText(FilledButton, 'Sign In').first;
+    await tester.tap(signInBtn);
+    await tester.pumpAndSettle();
+
+    // Verify AuthSheet dialog appears
+    expect(find.text('Sign in to BashaLagbe'), findsOneWidget);
+  });
+
+  testWidgets('PropertyCard displays Demo Preview badge for demo properties', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(const BashaLagbeApp());
+    await tester.pumpAndSettle();
+
+    // Home screen contains demo properties which must show Demo Preview badge
+    expect(find.text('Demo Preview'), findsWidgets);
   });
 }

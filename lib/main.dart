@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/firebase_options.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
+import 'package:basha_lagbe/auth_sheet.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
@@ -89,6 +90,18 @@ enum PropertyType {
 
   const PropertyType(this.label);
   final String label;
+
+  static PropertyType fromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'bachelor':
+        return PropertyType.bachelor;
+      case 'shared':
+        return PropertyType.shared;
+      case 'family':
+      default:
+        return PropertyType.family;
+    }
+  }
 }
 
 enum PropertyFilter {
@@ -139,6 +152,7 @@ class Property {
     this.nearbyHighlights = const [],
     this.photos = const [],
     this.utilityNotice = 'Electricity & utility bills as per usage/sub-meter',
+    this.isDemo = false,
   });
 
   final String id;
@@ -166,12 +180,14 @@ class Property {
   final List<String> nearbyHighlights;
   final List<PropertyPhoto> photos;
   final String utilityNotice;
+  final bool isDemo;
 }
 
 // All of these listings are fictional and for design preview only.
 const List<Property> demoProperties = [
   Property(
     id: 'demo-1',
+    isDemo: true,
     title: 'Green Nest Family Flat',
     area: 'Mirpur 10, Dhaka',
     landmark: 'Near Mirpur 10 Metro Rail Station',
@@ -239,6 +255,7 @@ const List<Property> demoProperties = [
   ),
   Property(
     id: 'demo-2',
+    isDemo: true,
     title: 'Lakeview Bachelor Room',
     area: 'Dhanmondi, Dhaka',
     landmark: 'Near Dhanmondi Lake',
@@ -305,6 +322,7 @@ const List<Property> demoProperties = [
   ),
   Property(
     id: 'demo-3',
+    isDemo: true,
     title: 'Sunrise Shared Mess Seat',
     area: 'Mohammadpur, Dhaka',
     landmark: 'Near Mohammadpur Town Hall',
@@ -362,6 +380,7 @@ const List<Property> demoProperties = [
   ),
   Property(
     id: 'demo-4',
+    isDemo: true,
     title: 'Palm Court Apartment',
     area: 'Uttara Sector 7, Dhaka',
     landmark: 'Near Uttara North Metro Station',
@@ -783,14 +802,21 @@ class _MainShellState extends State<MainShell> {
 
   StreamSubscription<User?>? _authSub;
   StreamSubscription<Set<String>>? _favouritesSub;
+  StreamSubscription<List<Property>>? _approvedPropertiesSub;
+  StreamSubscription<List<SubmittedListing>>? _userListingsSub;
+
   User? _firebaseUser;
+  List<Property> _approvedProperties = [];
+  List<SubmittedListing> _userCloudListings = [];
 
   @override
   void initState() {
     super.initState();
     _firebaseUser = AuthService.instance.currentUser;
+    _subscribeToApprovedProperties();
     if (_firebaseUser != null) {
       _subscribeToUserFavourites(_firebaseUser!.uid);
+      _subscribeToUserListings(_firebaseUser!.uid);
     }
     _authSub = AuthService.instance.authStateChanges.listen((user) {
       if (!mounted) return;
@@ -811,10 +837,52 @@ class _MainShellState extends State<MainShell> {
       if (newUid != previousUid) {
         if (user != null) {
           _subscribeToUserFavourites(user.uid);
+          _subscribeToUserListings(user.uid);
         } else {
           _unsubscribeAndRestoreGuestFavourites();
+          _unsubscribeUserListings();
         }
       }
+    });
+  }
+
+  void _subscribeToApprovedProperties() {
+    _approvedPropertiesSub?.cancel();
+    _approvedPropertiesSub = FirestoreService.instance.streamApprovedProperties().listen(
+      (props) {
+        if (mounted) {
+          setState(() {
+            _approvedProperties = props;
+          });
+        }
+      },
+      onError: (e) {
+        debugPrint('Approved properties stream error: $e');
+      },
+    );
+  }
+
+  void _subscribeToUserListings(String uid) {
+    _userListingsSub?.cancel();
+    _userListingsSub = FirestoreService.instance.streamUserListings(uid).listen(
+      (listings) {
+        if (mounted) {
+          setState(() {
+            _userCloudListings = listings;
+          });
+        }
+      },
+      onError: (e) {
+        debugPrint('User listings stream error: $e');
+      },
+    );
+  }
+
+  void _unsubscribeUserListings() {
+    _userListingsSub?.cancel();
+    _userListingsSub = null;
+    setState(() {
+      _userCloudListings = [];
     });
   }
 
@@ -847,10 +915,25 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _openAuthSheet({bool isRegister = false}) {
+    AuthSheet.show(
+      context,
+      initialIsRegister: isRegister,
+      onAuthenticated: (user) {
+        showFriendlyMessage(
+          context,
+          'Signed in as ${user.displayName ?? user.email ?? "User"}',
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _authSub?.cancel();
     _favouritesSub?.cancel();
+    _approvedPropertiesSub?.cancel();
+    _userListingsSub?.cancel();
     super.dispose();
   }
 
@@ -956,25 +1039,38 @@ class _MainShellState extends State<MainShell> {
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
+          approvedProperties: _approvedProperties,
         );
       case 1:
         return SavedScreen(
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
+          approvedProperties: _approvedProperties,
         );
       case 2:
         return PostPropertyScreen(
           initialTab: _postInitialTab,
-          myListings: _myListings,
+          myListings: _firebaseUser != null ? _userCloudListings : _myListings,
+          firebaseUser: _firebaseUser,
+          onRequireSignIn: () => _openAuthSheet(),
           onListingSubmitted: (newListing) {
             setState(() {
-              _myListings.insert(0, newListing);
+              if (_firebaseUser != null) {
+                _userCloudListings.removeWhere((item) => item.id == newListing.id);
+                _userCloudListings.insert(0, newListing);
+              } else {
+                _myListings.insert(0, newListing);
+              }
             });
           },
           onListingDeleted: (id) {
             setState(() {
-              _myListings.removeWhere((item) => item.id == id);
+              if (_firebaseUser != null) {
+                _userCloudListings.removeWhere((item) => item.id == id);
+              } else {
+                _myListings.removeWhere((item) => item.id == id);
+              }
             });
           },
         );
@@ -984,6 +1080,7 @@ class _MainShellState extends State<MainShell> {
           firebaseUser: _firebaseUser,
           onSignOut: () {
             _unsubscribeAndRestoreGuestFavourites();
+            _unsubscribeUserListings();
             setState(() {
               _firebaseUser = null;
             });
@@ -993,7 +1090,7 @@ class _MainShellState extends State<MainShell> {
               _userProfile = updated;
             });
           },
-          listingsCount: _myListings.length,
+          listingsCount: _firebaseUser != null ? _userCloudListings.length : 0,
           savedCount: _favouriteIds.length,
           rentalRequests: _rentalRequests,
           onCancelRentalRequest: _handleCancelRentalRequest,
@@ -1006,6 +1103,7 @@ class _MainShellState extends State<MainShell> {
           favouriteIds: _favouriteIds,
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
+          approvedProperties: _approvedProperties,
         );
     }
   }
@@ -1064,15 +1162,18 @@ class SavedScreen extends StatelessWidget {
     required this.favouriteIds,
     required this.onToggleFavourite,
     this.onRentalRequestSubmitted,
+    this.approvedProperties = const [],
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
   final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
+  final List<Property> approvedProperties;
 
   @override
   Widget build(BuildContext context) {
-    final savedProperties = demoProperties
+    final combined = [...approvedProperties, ...demoProperties];
+    final savedProperties = combined
         .where((property) => favouriteIds.contains(property.id))
         .toList();
 
@@ -1192,11 +1293,13 @@ class HomeScreen extends StatefulWidget {
     required this.favouriteIds,
     required this.onToggleFavourite,
     this.onRentalRequestSubmitted,
+    this.approvedProperties = const [],
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
   final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
+  final List<Property> approvedProperties;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1215,7 +1318,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Property> get _results {
     final q = _query.trim().toLowerCase();
-    return demoProperties.where((property) {
+    final combined = [...widget.approvedProperties, ...demoProperties];
+    return combined.where((property) {
       final matchesFilter = _filter.matches(property.type);
       final matchesQuery =
           q.isEmpty ||
@@ -1574,6 +1678,36 @@ class PropertyCard extends StatelessWidget {
                             ? AppColors.heart
                             : AppColors.textMuted,
                       ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: property.isDemo ? Colors.black.withValues(alpha: 0.70) : AppColors.darkGreen,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          property.isDemo ? Icons.info_outline : Icons.verified_outlined,
+                          size: 12,
+                          color: property.isDemo ? Colors.amberAccent : Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          property.isDemo ? 'Demo Preview' : 'Verified Cloud',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
