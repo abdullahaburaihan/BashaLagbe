@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:basha_lagbe/auth_sheet.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/profile_screen.dart';
+import 'package:basha_lagbe/services/firestore_service.dart';
 
 // ---------------------------------------------------------------------------
 // Property Photo Model
@@ -13,6 +17,9 @@ class PropertyPhoto {
   const PropertyPhoto({
     required this.label,
     this.imageUrl,
+    this.storagePath,
+    this.isCover = false,
+    this.order = 0,
     this.assetPath,
     this.icon = Icons.home_outlined,
     this.gradientStart,
@@ -21,6 +28,9 @@ class PropertyPhoto {
 
   final String label;
   final String? imageUrl;
+  final String? storagePath;
+  final bool isCover;
+  final int order;
   final String? assetPath;
   final IconData icon;
   final Color? gradientStart;
@@ -41,12 +51,16 @@ class PropertyDetailsScreen extends StatefulWidget {
     required this.favouriteIds,
     required this.onToggleFavourite,
     this.onRentalRequestSubmitted,
+    this.firebaseUser,
+    this.onRequireSignIn,
   });
 
   final Property property;
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
   final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
+  final User? firebaseUser;
+  final VoidCallback? onRequireSignIn;
 
   @override
   State<PropertyDetailsScreen> createState() => _PropertyDetailsScreenState();
@@ -56,18 +70,114 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
   final PageController _pageController = PageController();
   int _currentPhotoIndex = 0;
   bool _requestSubmittedLocally = false;
+  bool _hasActiveCloudRequest = false;
+  StreamSubscription<RentalRequest?>? _tenantRequestSub;
+  RentalRequest? _tenantRequest;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingActiveRequest();
+    _subscribeToTenantRequest();
+  }
+
+  @override
+  void didUpdateWidget(covariant PropertyDetailsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.firebaseUser != widget.firebaseUser ||
+        oldWidget.property.id != widget.property.id) {
+      _checkExistingActiveRequest();
+      _subscribeToTenantRequest();
+    }
+  }
+
+  void _subscribeToTenantRequest() {
+    _tenantRequestSub?.cancel();
+    final user = _currentUser;
+    if (user == null || widget.property.isDemo || _isOwner) {
+      if (mounted) {
+        setState(() {
+          _tenantRequest = null;
+        });
+      }
+      return;
+    }
+
+    _tenantRequestSub = FirestoreService.instance
+        .streamTenantRentalRequest(
+          propertyId: widget.property.id,
+          tenantId: user.uid,
+        )
+        .listen(
+          (req) {
+            if (mounted) {
+              setState(() {
+                _tenantRequest = req;
+                if (req != null) {
+                  _hasActiveCloudRequest = req.isPending || req.isAccepted;
+                }
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('PropertyDetailsScreen streamTenantRentalRequest error: $e');
+          },
+        );
+  }
+
+  User? get _currentUser {
+    if (widget.firebaseUser != null) return widget.firebaseUser;
+    if (FirestoreService.instance.isFirebaseAvailable) {
+      try {
+        return FirebaseAuth.instance.currentUser;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  bool get _isOwner {
+    final user = _currentUser;
+    if (user == null) return false;
+    final ownerId = widget.property.ownerId;
+    return ownerId != null && ownerId.isNotEmpty && ownerId == user.uid;
+  }
+
+  Future<void> _checkExistingActiveRequest() async {
+    final user = _currentUser;
+    if (user == null || widget.property.isDemo || _isOwner) return;
+
+    try {
+      final hasActive = await FirestoreService.instance.hasActiveRentalRequest(
+        propertyId: widget.property.id,
+        tenantId: user.uid,
+      );
+      if (mounted) {
+        setState(() {
+          _hasActiveCloudRequest = hasActive;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
+    _tenantRequestSub?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
   List<PropertyPhoto> get _photos {
     if (widget.property.photos.isNotEmpty) {
-      return widget.property.photos;
+      final validPhotos = widget.property.photos
+          .where((p) => p.isNetworkPhoto || p.isAssetPhoto)
+          .toList();
+      if (validPhotos.isNotEmpty) {
+        return validPhotos;
+      }
     }
-    // Fallback gallery if property has no explicit photos list
+    // Fallback gallery if property has no explicit photos list or only legacy null-URL placeholders
     return [
       PropertyPhoto(
         label: 'Main Living Space',
@@ -110,7 +220,68 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
     });
   }
 
+  void _promptSignIn(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_outline, color: AppColors.green),
+            SizedBox(width: 8),
+            Text('Sign In Required'),
+          ],
+        ),
+        content: const Text(
+          'You need to sign in to send a rental request to the landlord and track its status.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogCtx).pop();
+              if (widget.onRequireSignIn != null) {
+                widget.onRequireSignIn!();
+              } else {
+                AuthSheet.show(context);
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: AppColors.green),
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showRequestToRentModal(BuildContext context) {
+    final user = _currentUser;
+
+    if (_isOwner) {
+      showFriendlyMessage(
+        context,
+        'You are the owner of this property. Manage it from My Listings.',
+      );
+      return;
+    }
+
+    if (_hasActiveCloudRequest) {
+      showFriendlyMessage(
+        context,
+        'Your rental request for this property is pending landlord review.',
+      );
+      return;
+    }
+
+    // Requirement 1: Require sign in for real cloud properties
+    if (!widget.property.isDemo && user == null) {
+      _promptSignIn(context);
+      return;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -118,16 +289,32 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
       builder: (modalContext) {
         return RequestToRentSheet(
           property: widget.property,
+          currentUser: user,
+          onRequireSignIn: () {
+            Navigator.of(modalContext).pop();
+            _promptSignIn(context);
+          },
           onSubmitted: (request) {
             setState(() {
-              _requestSubmittedLocally = true;
+              if (request.isDemo) {
+                _requestSubmittedLocally = true;
+              } else {
+                _hasActiveCloudRequest = true;
+              }
             });
             widget.onRentalRequestSubmitted?.call(request);
             Navigator.of(modalContext).pop();
-            showFriendlyMessage(
-              context,
-              'Demo request saved locally. Landlords will receive notifications in future milestones.',
-            );
+            if (request.isDemo) {
+              showFriendlyMessage(
+                context,
+                'Demo request saved locally. Landlords will receive notifications in future milestones.',
+              );
+            } else {
+              showFriendlyMessage(
+                context,
+                'Rental request sent to landlord! You can track its status in your Profile.',
+              );
+            }
           },
         );
       },
@@ -170,12 +357,12 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                 child: CircleAvatar(
                   backgroundColor: Colors.black.withAlpha(90),
                   child: IconButton(
-                    tooltip: 'Share listing (Demo)',
+                    tooltip: 'Share listing',
                     icon: const Icon(Icons.share_outlined, color: Colors.white, size: 20),
                     onPressed: () {
                       showFriendlyMessage(
                         context,
-                        'Listing link copied to clipboard (Demo).',
+                        'Listing link copied to clipboard.',
                       );
                     },
                   ),
@@ -782,33 +969,161 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                   ],
 
                   // ---------------------------------------------------------
-                  // Demo Notice
+                  // Landlord Contact Details & Request Status
                   // ---------------------------------------------------------
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.amberLight,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.amber.withAlpha(70)),
-                    ),
-                    child: const Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.shield_outlined, color: AppColors.amber, size: 22),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Demo Listing Notice: All specifications, photos and contact prompts are local simulations for preview. Real listings will be verified in future milestones.',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              height: 1.4,
-                              color: AppColors.textDark,
+                  if (!widget.property.isDemo && !_isOwner) ...[
+                    if (_tenantRequest != null && _tenantRequest!.isAccepted) ...[
+                      LandlordContactCard(
+                        propertyId: widget.property.id,
+                        landlordNote: _tenantRequest!.landlordNote,
+                      ),
+                      const SizedBox(height: 18),
+                    ] else if (_tenantRequest != null && _tenantRequest!.isPending) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF9E6),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFB7791F).withAlpha(80)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.lock_clock_rounded, color: Color(0xFFB7791F), size: 22),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Rental Request Pending Landlord Review',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF7A4F00),
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'You submitted a rental request for this home. The landlord\'s phone, WhatsApp, and email will be revealed here as soon as they accept your request.',
+                                    style: TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.35),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ] else if (_tenantRequest != null && _tenantRequest!.isRejected) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEAEA),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFC53030).withAlpha(80)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.cancel_outlined, color: Color(0xFFC53030), size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Previous Request Declined',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF8B1E1E),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _tenantRequest!.landlordNote != null && _tenantRequest!.landlordNote!.isNotEmpty
+                                        ? 'Landlord note: "${_tenantRequest!.landlordNote}"'
+                                        : 'The landlord declined your previous request. Direct contact details remain protected.',
+                                    style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F9F6),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.green.withAlpha(70)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.shield_outlined, color: AppColors.green, size: 22),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Landlord Contact Privacy',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.darkGreen,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'To prevent spam and protect landlord privacy, contact details remain hidden. Click "Request to Rent" below to send a formal application. Once accepted, all contact methods will be unlocked.',
+                                    style: TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.35),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                  ],
+
+                  // ---------------------------------------------------------
+                  // Demo Notice (shown only for demo previews)
+                  // ---------------------------------------------------------
+                  if (widget.property.isDemo) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.amberLight,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.amber.withAlpha(70)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.shield_outlined, color: AppColors.amber, size: 22),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Demo Listing Notice: All specifications, photos and contact prompts are local simulations for preview. Real listings will be verified in future milestones.',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                height: 1.4,
+                                color: AppColors.textDark,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -866,11 +1181,36 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
             const SizedBox(width: 16),
             Expanded(
               child: FilledButton.icon(
-                onPressed: () => _showRequestToRentModal(context),
+                onPressed: _isOwner
+                    ? () {
+                        showFriendlyMessage(
+                          context,
+                          'You are the owner of this property. Manage it from My Listings.',
+                        );
+                      }
+                    : (_tenantRequest?.isAccepted == true
+                        ? () {
+                            showFriendlyMessage(
+                              context,
+                              'Landlord accepted your rental request! Contact details are displayed above.',
+                            );
+                          }
+                        : (_hasActiveCloudRequest
+                            ? () {
+                                showFriendlyMessage(
+                                  context,
+                                  'Your rental request for this property is pending landlord review.',
+                                );
+                              }
+                            : () => _showRequestToRentModal(context))),
                 style: FilledButton.styleFrom(
-                  backgroundColor: _requestSubmittedLocally
-                      ? AppColors.darkGreen
-                      : AppColors.green,
+                  backgroundColor: _isOwner
+                      ? Colors.grey.shade400
+                      : (_tenantRequest?.isAccepted == true
+                          ? const Color(0xFF0E5E3B)
+                          : (_hasActiveCloudRequest || _requestSubmittedLocally
+                              ? AppColors.darkGreen
+                              : AppColors.green)),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
@@ -878,13 +1218,27 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                   ),
                 ),
                 icon: Icon(
-                  _requestSubmittedLocally
-                      ? Icons.check_circle_outline
-                      : Icons.send_outlined,
+                  _isOwner
+                      ? Icons.home_work_outlined
+                      : (_tenantRequest?.isAccepted == true
+                          ? Icons.verified_user_rounded
+                          : (_hasActiveCloudRequest || _requestSubmittedLocally
+                              ? Icons.check_circle_outline
+                              : Icons.send_outlined)),
                   size: 20,
                 ),
                 label: Text(
-                  _requestSubmittedLocally ? 'Request Sent (Demo)' : 'Request to Rent',
+                  _isOwner
+                      ? 'Your Property (Owner)'
+                      : (_tenantRequest?.isAccepted == true
+                          ? 'Request Accepted (Contact Above)'
+                          : (_hasActiveCloudRequest
+                              ? 'Request Sent (Pending)'
+                              : (_requestSubmittedLocally
+                                  ? 'Request Sent (Demo)'
+                                  : (_tenantRequest?.isRejected == true
+                                      ? 'Re-apply for Rent'
+                                      : 'Request to Rent')))),
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -1023,27 +1377,6 @@ class _GalleryPhotoItem extends StatelessWidget {
               ],
             ),
           ),
-          if (!isError)
-            Positioned(
-              left: 16,
-              top: 60,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0x88000000),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'DEMO ILLUSTRATION',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.7,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -1215,7 +1548,8 @@ class _FinancialRow extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // "Request to Rent" Interactive Modal Bottom Sheet
-// Clearly displays local demo mode notice and captures demo request
+// Supports local demo mode for demo listings and real Firestore submission
+// for live cloud property listings.
 // ---------------------------------------------------------------------------
 
 class RequestToRentSheet extends StatefulWidget {
@@ -1223,20 +1557,22 @@ class RequestToRentSheet extends StatefulWidget {
     super.key,
     required this.property,
     required this.onSubmitted,
+    this.currentUser,
+    this.onRequireSignIn,
   });
 
   final Property property;
   final ValueChanged<RentalRequest> onSubmitted;
+  final User? currentUser;
+  final VoidCallback? onRequireSignIn;
 
   @override
   State<RequestToRentSheet> createState() => _RequestToRentSheetState();
 }
 
 class _RequestToRentSheetState extends State<RequestToRentSheet> {
-  final TextEditingController _nameController =
-      TextEditingController(text: 'Demo Renter');
-  final TextEditingController _phoneController =
-      TextEditingController(text: '01700000000');
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
   final TextEditingController _noteController = TextEditingController();
 
   String _selectedMoveIn = 'Immediate';
@@ -1246,12 +1582,179 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
     '15th of next month',
   ];
 
+  bool _isSubmitting = false;
+  String? _nameError;
+  String? _phoneError;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialName = widget.currentUser?.displayName?.trim();
+    _nameController = TextEditingController(
+      text: (initialName != null && initialName.isNotEmpty)
+          ? initialName
+          : (widget.property.isDemo ? 'Demo Renter' : ''),
+    );
+    final initialPhone = widget.currentUser?.phoneNumber?.trim();
+    _phoneController = TextEditingController(
+      text: (initialPhone != null && initialPhone.isNotEmpty)
+          ? initialPhone
+          : (widget.property.isDemo ? '01700000000' : ''),
+    );
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleSubmit() async {
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final message = _noteController.text.trim();
+    final moveIn = _selectedMoveIn.trim();
+
+    setState(() {
+      _nameError = null;
+      _phoneError = null;
+      _errorMessage = null;
+    });
+
+    bool hasValidationError = false;
+    if (name.isEmpty) {
+      _nameError = 'Please enter your full name.';
+      hasValidationError = true;
+    }
+
+    if (phone.isEmpty) {
+      _phoneError = 'Please enter a contact phone number.';
+      hasValidationError = true;
+    } else if (phone.length < 6) {
+      _phoneError = 'Please enter a valid phone number (at least 6 digits).';
+      hasValidationError = true;
+    }
+
+    if (moveIn.isEmpty) {
+      _errorMessage = 'Please select a preferred move-in date.';
+      hasValidationError = true;
+    }
+
+    if (hasValidationError) {
+      setState(() {});
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    // 1. Demo property fallback: preserve local in-memory submission
+    if (widget.property.isDemo) {
+      final demoRequest = RentalRequest(
+        id: 'REQ-${DateTime.now().millisecondsSinceEpoch % 10000}',
+        property: widget.property,
+        renterName: name,
+        renterPhone: phone,
+        preferredMoveIn: moveIn,
+        message: message,
+        requestedAt: DateTime.now(),
+        status: 'Pending Landlord Response',
+        isDemo: true,
+      );
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+        widget.onSubmitted(demoRequest);
+      }
+      return;
+    }
+
+    // 2. Real cloud property: authenticate & submit to Cloud Firestore
+    final user = widget.currentUser;
+    if (user == null) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = 'You must be signed in to submit a rental request.';
+        });
+        widget.onRequireSignIn?.call();
+      }
+      return;
+    }
+
+    final ownerId = widget.property.ownerId;
+    if (ownerId == null || ownerId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = 'This listing is missing landlord identification.';
+        });
+      }
+      return;
+    }
+
+    if (user.uid == ownerId) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = 'You cannot submit a rental request for your own property.';
+        });
+      }
+      return;
+    }
+
+    try {
+      final docId = await FirestoreService.instance.createRentalRequest(
+        propertyId: widget.property.id,
+        ownerId: ownerId,
+        tenantId: user.uid,
+        tenantEmail: user.email ?? '',
+        tenantName: name,
+        tenantPhone: phone,
+        preferredMoveIn: moveIn,
+        message: message,
+        propertyTitle: widget.property.title,
+        propertyArea: widget.property.area,
+        rentPerMonth: widget.property.rentPerMonth,
+        propertyPhotoUrl: widget.property.photos.isNotEmpty
+            ? widget.property.photos.first.imageUrl
+            : null,
+      );
+
+      final realRequest = RentalRequest(
+        id: docId,
+        property: widget.property,
+        renterName: name,
+        renterPhone: phone,
+        preferredMoveIn: moveIn,
+        message: message,
+        requestedAt: DateTime.now(),
+        status: 'pending',
+        ownerId: ownerId,
+        tenantId: user.uid,
+        tenantEmail: user.email,
+        isDemo: false,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+        widget.onSubmitted(realRequest);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = FirestoreService.getFriendlyErrorMessage(e);
+        });
+      }
+    }
   }
 
   @override
@@ -1326,32 +1829,90 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
 
             const SizedBox(height: 14),
 
-            // Explicit Demo Notice Banner
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.amberLight,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.amber.withAlpha(90)),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline, size: 20, color: AppColors.amber),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Local Demo Notice: This request is stored locally on this device only. No SMS, phone call, or message will be sent to real landlords.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                        color: AppColors.textDark,
+            // Informational Notice Banner
+            if (widget.property.isDemo)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.amberLight,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.amber.withAlpha(90)),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 20, color: AppColors.amber),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Local Demo Notice: This request is stored locally on this device only. No SMS, phone call, or message will be sent to real landlords.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: AppColors.textDark,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.lightGreen,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.green.withAlpha(80)),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.verified_user_outlined, size: 20, color: AppColors.darkGreen),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Direct Landlord Request: Your rental application will be delivered securely to the property owner for review.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+
+            // Inline Error Banner
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE3E3),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFC53030).withAlpha(120)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline, size: 20, color: Color(0xFFC53030)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: Color(0xFF9B1C1C),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: 16),
 
@@ -1363,7 +1924,12 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
             const SizedBox(height: 6),
             TextField(
               controller: _nameController,
+              onChanged: (_) {
+                if (_nameError != null) setState(() => _nameError = null);
+              },
               decoration: InputDecoration(
+                hintText: 'e.g. Shakib Al Hasan',
+                errorText: _nameError,
                 filled: true,
                 fillColor: AppColors.background,
                 prefixIcon: const Icon(Icons.person_outline, color: AppColors.green),
@@ -1390,7 +1956,12 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
+              onChanged: (_) {
+                if (_phoneError != null) setState(() => _phoneError = null);
+              },
               decoration: InputDecoration(
+                hintText: 'e.g. 01712345678',
+                errorText: _phoneError,
                 filled: true,
                 fillColor: AppColors.background,
                 prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.green),
@@ -1428,13 +1999,15 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
                     fontWeight: FontWeight.w600,
                     fontSize: 12.5,
                   ),
-                  onSelected: (val) {
-                    if (val) {
-                      setState(() {
-                        _selectedMoveIn = option;
-                      });
-                    }
-                  },
+                  onSelected: _isSubmitting
+                      ? null
+                      : (val) {
+                          if (val) {
+                            setState(() {
+                              _selectedMoveIn = option;
+                            });
+                          }
+                        },
                 );
               }).toList(),
             ),
@@ -1450,6 +2023,7 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
             TextField(
               controller: _noteController,
               maxLines: 2,
+              enabled: !_isSubmitting,
               decoration: InputDecoration(
                 hintText: 'e.g. Any parking fee? Can we visit this Friday?',
                 hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 13),
@@ -1473,35 +2047,34 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () {
-                  final request = RentalRequest(
-                    id: 'REQ-${DateTime.now().millisecondsSinceEpoch % 10000}',
-                    property: widget.property,
-                    renterName: _nameController.text.trim().isNotEmpty
-                        ? _nameController.text.trim()
-                        : 'Demo Renter',
-                    renterPhone: _phoneController.text.trim().isNotEmpty
-                        ? _phoneController.text.trim()
-                        : '01700000000',
-                    preferredMoveIn: _selectedMoveIn,
-                    message: _noteController.text.trim(),
-                    requestedAt: DateTime.now(),
-                    status: 'Pending Landlord Response',
-                  );
-                  widget.onSubmitted(request);
-                },
+                onPressed: _isSubmitting ? null : _handleSubmit,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.green,
+                  disabledBackgroundColor: AppColors.green.withAlpha(140),
                   foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white70,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text(
-                  'Submit Demo Rental Request',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send_rounded),
+                label: Text(
+                  _isSubmitting
+                      ? 'Sending Request...'
+                      : (widget.property.isDemo
+                          ? 'Submit Demo Rental Request'
+                          : 'Send Rental Request'),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                 ),
               ),
             ),

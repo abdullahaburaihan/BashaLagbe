@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:basha_lagbe/firebase_options.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
@@ -19,6 +20,13 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    if (const bool.fromEnvironment(
+      'USE_FIREBASE_EMULATOR',
+      defaultValue: false,
+    )) {
+      FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
+      debugPrint('Firestore connected to local emulator at localhost:8080');
+    }
   } catch (e) {
     debugPrint('Firebase initialization notice: $e');
   }
@@ -47,7 +55,9 @@ class AppColors {
 // ---------------------------------------------------------------------------
 
 class BashaLagbeApp extends StatelessWidget {
-  const BashaLagbeApp({super.key});
+  const BashaLagbeApp({super.key, this.initialApprovedProperties});
+
+  final List<Property>? initialApprovedProperties;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +84,7 @@ class BashaLagbeApp extends StatelessWidget {
           indicatorColor: AppColors.lightGreen,
         ),
       ),
-      home: const MainShell(),
+      home: MainShell(initialApprovedProperties: initialApprovedProperties),
     );
   }
 }
@@ -153,6 +163,7 @@ class Property {
     this.photos = const [],
     this.utilityNotice = 'Electricity & utility bills as per usage/sub-meter',
     this.isDemo = false,
+    this.ownerId,
   });
 
   final String id;
@@ -181,510 +192,8 @@ class Property {
   final List<PropertyPhoto> photos;
   final String utilityNotice;
   final bool isDemo;
+  final String? ownerId;
 }
-
-// All of these listings are fictional and for design preview only.
-const List<Property> demoProperties = [
-  Property(
-    id: 'demo-1',
-    isDemo: true,
-    title: 'Green Nest Family Flat',
-    area: 'Mirpur 10, Dhaka',
-    landmark: 'Near Mirpur 10 Metro Rail Station',
-    fullAddress: 'Road 4, Block C, Section 10, Mirpur, Dhaka',
-    rentPerMonth: 18000,
-    depositAmount: 36000,
-    sizeSqFt: 1250,
-    floorLevel: '4th Floor (Lift-3)',
-    balconies: 2,
-    type: PropertyType.family,
-    bedrooms: 3,
-    bathrooms: 2,
-    availability: 'Available now',
-    availableNow: true,
-    icon: Icons.apartment,
-    gradientStart: Color(0xFF2E9E6B),
-    gradientEnd: Color(0xFF0E5E3B),
-    description: 'Spacious, naturally lit south-facing family apartment in a gated residential building. Excellent cross-ventilation, separate drawing and dining spaces, and child-safe balcony railings.',
-    facilities: [
-      'Lift (Elevator)',
-      'Standby Generator',
-      'Titas Pipeline Gas',
-      '24/7 Guard & CCTV',
-      'Car Parking Available',
-      'South-facing Balcony',
-      'Water Supply 24/7',
-    ],
-    nearbyHighlights: [
-      'Mirpur 10 Metro Rail Station (3 min walk)',
-      'Mirpur Girls Ideal School & College (5 min)',
-      'Benarosi Palli & Local Supermarket (4 min)',
-      'Central Jam-e Mosque (2 min)',
-    ],
-    utilityNotice: 'Gas & water included in service charge; electricity prepaid sub-meter.',
-    photos: [
-      PropertyPhoto(
-        label: 'Living & Dining Hall',
-        imageUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.chair_outlined,
-        gradientStart: Color(0xFF2E9E6B),
-        gradientEnd: Color(0xFF0E5E3B),
-      ),
-      PropertyPhoto(
-        label: 'Master Bedroom',
-        imageUrl: 'https://images.unsplash.com/photo-1540518614846-7ede433c4550?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bed_outlined,
-        gradientStart: Color(0xFF38A169),
-        gradientEnd: Color(0xFF1B6B45),
-      ),
-      PropertyPhoto(
-        label: 'Modern Fitted Kitchen',
-        imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.kitchen_outlined,
-        gradientStart: Color(0xFF2B8A68),
-        gradientEnd: Color(0xFF104D36),
-      ),
-      PropertyPhoto(
-        label: 'South Balcony View',
-        imageUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.balcony_outlined,
-        gradientStart: Color(0xFF48BB78),
-        gradientEnd: Color(0xFF22543D),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-2',
-    isDemo: true,
-    title: 'Lakeview Bachelor Room',
-    area: 'Dhanmondi, Dhaka',
-    landmark: 'Near Dhanmondi Lake',
-    fullAddress: 'Road 8/A, Dhanmondi R/A, Dhaka',
-    rentPerMonth: 9500,
-    depositAmount: 9500,
-    sizeSqFt: 380,
-    floorLevel: '3rd Floor',
-    balconies: 1,
-    type: PropertyType.bachelor,
-    bedrooms: 1,
-    bathrooms: 1,
-    availability: 'Available from 1 Nov',
-    availableNow: false,
-    icon: Icons.home_work,
-    gradientStart: Color(0xFF3AA6A0),
-    gradientEnd: Color(0xFF176B66),
-    description: 'Peaceful and secure bachelor room with attached tiled washroom and private lake-facing balcony. Ideal for university students or young professionals looking for a calm study atmosphere.',
-    facilities: [
-      'Attached Bathroom',
-      'Lake-facing Balcony',
-      'High-speed Wi-Fi Ready',
-      'Filtered Drinking Water',
-      '24/7 Security Guard',
-      'Daily Maid Cleaning Option',
-    ],
-    nearbyHighlights: [
-      'Dhanmondi Lake Park (1 min walk)',
-      'Rapa Plaza & Metro Shopping Mall (6 min)',
-      'Food Courts & Dhanmondi 27 Hub (5 min)',
-    ],
-    utilityNotice:
-        'Wi-Fi and water included; shared electricity divided equally.',
-    photos: [
-      PropertyPhoto(
-        label: 'Bachelor Room',
-        imageUrl: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.single_bed_outlined,
-        gradientStart: Color(0xFF3AA6A0),
-        gradientEnd: Color(0xFF176B66),
-      ),
-      PropertyPhoto(
-        label: 'Study Desk Area',
-        imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.laptop_chromebook_outlined,
-        gradientStart: Color(0xFF319795),
-        gradientEnd: Color(0xFF234E52),
-      ),
-      PropertyPhoto(
-        label: 'Attached Bathroom',
-        imageUrl: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bathtub_outlined,
-        gradientStart: Color(0xFF2C7A7B),
-        gradientEnd: Color(0xFF1A365D),
-      ),
-      PropertyPhoto(
-        label: 'Lake View Balcony',
-        imageUrl: 'https://images.unsplash.com/photo-1507089947368-19c1da9775ae?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.deck_outlined,
-        gradientStart: Color(0xFF4FD1C5),
-        gradientEnd: Color(0xFF285E61),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-3',
-    isDemo: true,
-    title: 'Sunrise Shared Mess Seat',
-    area: 'Mohammadpur, Dhaka',
-    landmark: 'Near Mohammadpur Town Hall',
-    fullAddress: 'Noorjahan Road, Mohammadpur, Dhaka',
-    rentPerMonth: 4500,
-    depositAmount: 4500,
-    sizeSqFt: 220,
-    floorLevel: '2nd Floor',
-    balconies: 1,
-    type: PropertyType.shared,
-    bedrooms: 1,
-    bathrooms: 1,
-    availability: 'Available now',
-    availableNow: true,
-    icon: Icons.groups,
-    gradientStart: Color(0xFF6BB26B),
-    gradientEnd: Color(0xFF2F7A3F),
-    description: 'Cozy single seat in a friendly 2-person shared room with managed mess meal system. Conveniently located near Mohammadpur Town Hall market and bus stands.',
-    facilities: [
-      'Running Meal System (3 times)',
-      'High-speed Wi-Fi',
-      'Drinking Water Filter',
-      'Housekeeping Service',
-      'Shared Fridge & Kitchen',
-    ],
-    nearbyHighlights: [
-      'Mohammadpur Town Hall Market (2 min walk)',
-      'Mohammadpur Bus Stand (5 min walk)',
-      'Krishi Market & Daily Bazaar (4 min)',
-    ],
-    utilityNotice: 'Gas, electricity and Wi-Fi included in monthly rent. Meals charged per meal.',
-    photos: [
-      PropertyPhoto(
-        label: 'Shared Bed Space',
-        imageUrl: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bed_outlined,
-        gradientStart: Color(0xFF6BB26B),
-        gradientEnd: Color(0xFF2F7A3F),
-      ),
-      PropertyPhoto(
-        label: 'Study & Common Area',
-        imageUrl: 'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.table_restaurant_outlined,
-        gradientStart: Color(0xFF48BB78),
-        gradientEnd: Color(0xFF276749),
-      ),
-      PropertyPhoto(
-        label: 'Kitchen & Dining',
-        imageUrl: 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.kitchen_outlined,
-        gradientStart: Color(0xFF38A169),
-        gradientEnd: Color(0xFF1C4532),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-4',
-    isDemo: true,
-    title: 'Palm Court Apartment',
-    area: 'Uttara Sector 7, Dhaka',
-    landmark: 'Near Uttara North Metro Station',
-    fullAddress: 'Road 12, Sector 7, Uttara, Dhaka',
-    rentPerMonth: 25000,
-    depositAmount: 50000,
-    sizeSqFt: 1550,
-    floorLevel: '6th Floor (Lift)',
-    balconies: 3,
-    type: PropertyType.family,
-    bedrooms: 3,
-    bathrooms: 3,
-    availability: 'Available from 15 Nov',
-    availableNow: false,
-    icon: Icons.domain,
-    gradientStart: Color(0xFF45A880),
-    gradientEnd: Color(0xFF14654A),
-    description: 'Premium 3-bedroom family apartment with imported fittings, master bath tub, expansive open kitchen, and reserved basement parking in a quiet neighborhood of Uttara.',
-    facilities: [
-      'Twin High-speed Lifts',
-      'Full Standby Generator (including AC)',
-      'Reserved Car Parking Slot',
-      'CCTV Surveillance & Guard 24/7',
-      'Intercom & Fire Safety System',
-      '3 Wide Balconies',
-    ],
-    nearbyHighlights: [
-      'Uttara North Metro Station (5 min)',
-      'Sector 7 Central Park & Lake (3 min walk)',
-      'Scholastica & Milestone College (6 min)',
-    ],
-    utilityNotice: 'Prepaid electricity; service charge includes gas, water and generator maintenance.',
-    photos: [
-      PropertyPhoto(
-        label: 'Spacious Drawing Room',
-        imageUrl: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.weekend_outlined,
-        gradientStart: Color(0xFF45A880),
-        gradientEnd: Color(0xFF14654A),
-      ),
-      PropertyPhoto(
-        label: 'Master Bedroom Suite',
-        imageUrl: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bed_outlined,
-        gradientStart: Color(0xFF38B2AC),
-        gradientEnd: Color(0xFF234E52),
-      ),
-      PropertyPhoto(
-        label: 'Kitchen & Dining Area',
-        imageUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.kitchen_outlined,
-        gradientStart: Color(0xFF4FD1C5),
-        gradientEnd: Color(0xFF1D4044),
-      ),
-      PropertyPhoto(
-        label: 'Corner Balcony',
-        imageUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.balcony_outlined,
-        gradientStart: Color(0xFF2C7A7B),
-        gradientEnd: Color(0xFF1A365D),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-5',
-    title: 'Campus Corner Studio',
-    area: 'Bashundhara R/A, Dhaka',
-    landmark: 'Near Jamuna Future Park',
-    fullAddress: 'Block D, Bashundhara R/A, Dhaka',
-    rentPerMonth: 12000,
-    depositAmount: 12000,
-    sizeSqFt: 520,
-    floorLevel: '2nd Floor',
-    balconies: 1,
-    type: PropertyType.bachelor,
-    bedrooms: 1,
-    bathrooms: 1,
-    availability: 'Available now',
-    availableNow: true,
-    icon: Icons.house,
-    gradientStart: Color(0xFF52B788),
-    gradientEnd: Color(0xFF1F7A56),
-    description: 'Modern studio apartment tailored for university students or tech professionals. Walking distance to private universities, supermarkets, and fitness gyms.',
-    facilities: [
-      'Elevator / Lift',
-      'Standby Generator Backup',
-      'High-speed Fiber Wi-Fi Ready',
-      'Security Guard & Intercom',
-      'Modern Kitchenette',
-    ],
-    nearbyHighlights: [
-      'North South University & IUB (6 min)',
-      'Jamuna Future Park (7 min)',
-      'Evercare Hospital Dhaka (8 min)',
-      'Meena Bazar & Gyms (3 min walk)',
-    ],
-    utilityNotice:
-        'Water & security included; electricity as per digital sub-meter.',
-    photos: [
-      PropertyPhoto(
-        label: 'Studio Room & Desk Space',
-        imageUrl: 'https://images.unsplash.com/photo-1536376072261-38c75010e6c9?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.laptop_chromebook_outlined,
-        gradientStart: Color(0xFF52B788),
-        gradientEnd: Color(0xFF1F7A56),
-      ),
-      PropertyPhoto(
-        label: 'Work Desk & Living',
-        imageUrl: 'https://images.unsplash.com/photo-1499955085172-a104c9463ece?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.weekend_outlined,
-        gradientStart: Color(0xFF48BB78),
-        gradientEnd: Color(0xFF276749),
-      ),
-      PropertyPhoto(
-        label: 'Kitchenette & Bath',
-        imageUrl: 'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.microwave_outlined,
-        gradientStart: Color(0xFF68D391),
-        gradientEnd: Color(0xFF276749),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-6',
-    title: 'Hilltop Family Home',
-    area: 'Zindabazar, Sylhet',
-    landmark: 'Near Zindabazar Point',
-    fullAddress: 'Jallarpar Road, Zindabazar, Sylhet',
-    rentPerMonth: 15000,
-    depositAmount: 30000,
-    sizeSqFt: 1100,
-    floorLevel: '3rd Floor',
-    balconies: 2,
-    type: PropertyType.family,
-    bedrooms: 2,
-    bathrooms: 2,
-    availability: 'Available from 1 Dec',
-    availableNow: false,
-    icon: Icons.cottage,
-    gradientStart: Color(0xFF4FAE8C),
-    gradientEnd: Color(0xFF1A6B55),
-    description: 'Peaceful and airy family residence in central Sylhet. Offers refreshing natural breezes, high ceilings, rooftop access, and hassle-free city connection.',
-    facilities: [
-      '24/7 Deep Tube-well Water',
-      'Generator Power Backup',
-      '2 Spacious Balconies',
-      'Dedicated Bike & Car Parking',
-      'Rooftop Garden Access',
-    ],
-    nearbyHighlights: [
-      'Zindabazar Point & Shopping Mall (3 min walk)',
-      'Sylhet Central Jam-e Mosque (4 min)',
-      'Shahi Eidgah & Parks (7 min)',
-    ],
-    utilityNotice:
-        'Gas & water included; DESCO/BPDB electricity by user meter.',
-    photos: [
-      PropertyPhoto(
-        label: 'Main Living Room',
-        imageUrl: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.living_outlined,
-        gradientStart: Color(0xFF4FAE8C),
-        gradientEnd: Color(0xFF1A6B55),
-      ),
-      PropertyPhoto(
-        label: 'Master Bedroom',
-        imageUrl: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bedroom_parent_outlined,
-        gradientStart: Color(0xFF38A169),
-        gradientEnd: Color(0xFF1C4532),
-      ),
-      PropertyPhoto(
-        label: 'Balcony & Garden View',
-        imageUrl: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.deck_outlined,
-        gradientStart: Color(0xFF48BB78),
-        gradientEnd: Color(0xFF22543D),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-7',
-    title: 'Harbour Side Shared Flat',
-    area: 'Agrabad, Chattogram',
-    landmark: 'Near Agrabad Commercial Area',
-    fullAddress: 'Badamtoli Mor, Agrabad C/A, Chattogram',
-    rentPerMonth: 7000,
-    depositAmount: 7000,
-    sizeSqFt: 620,
-    floorLevel: '4th Floor',
-    balconies: 1,
-    type: PropertyType.shared,
-    bedrooms: 2,
-    bathrooms: 1,
-    availability: 'Available now',
-    availableNow: true,
-    icon: Icons.holiday_village,
-    gradientStart: Color(0xFF3C9D9B),
-    gradientEnd: Color(0xFF15616A),
-    description: 'Well-connected executive shared flat for commercial professionals and port personnel working in Chattogram. Well-kept with dedicated study spaces.',
-    facilities: [
-      'Generator Power Backup',
-      'High-speed Wi-Fi',
-      '24/7 Security Gate',
-      'Balcony with Port Breeze',
-      'Water Filter & Fridge',
-    ],
-    nearbyHighlights: [
-      'World Trade Center Chattogram (4 min)',
-      'Agrabad Commercial Bank Zone (3 min walk)',
-      'Access Road Bus Stops (2 min walk)',
-    ],
-    utilityNotice: 'Electricity and Wi-Fi included in rent.',
-    photos: [
-      PropertyPhoto(
-        label: 'Executive Bedroom',
-        imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bed_outlined,
-        gradientStart: Color(0xFF3C9D9B),
-        gradientEnd: Color(0xFF15616A),
-      ),
-      PropertyPhoto(
-        label: 'Living & Dining Space',
-        imageUrl: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.table_restaurant_outlined,
-        gradientStart: Color(0xFF319795),
-        gradientEnd: Color(0xFF234E52),
-      ),
-      PropertyPhoto(
-        label: 'City View Balcony',
-        imageUrl: 'https://images.unsplash.com/photo-1502005229762-ee1b2b8ab98f?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.deck_outlined,
-        gradientStart: Color(0xFF4FD1C5),
-        gradientEnd: Color(0xFF234E52),
-      ),
-    ],
-  ),
-  Property(
-    id: 'demo-8',
-    title: 'Banani Garden Flat',
-    area: 'Banani, Dhaka',
-    landmark: 'Near Banani Road 11',
-    fullAddress: 'Road 11, Block D, Banani, Dhaka',
-    rentPerMonth: 32000,
-    depositAmount: 64000,
-    sizeSqFt: 1850,
-    floorLevel: '5th Floor (Lift)',
-    balconies: 3,
-    type: PropertyType.family,
-    bedrooms: 4,
-    bathrooms: 3,
-    availability: 'Available from 10 Nov',
-    availableNow: false,
-    icon: Icons.villa,
-    gradientStart: Color(0xFF2F9E5E),
-    gradientEnd: Color(0xFF0B5A35),
-    description: 'Luxurious and peaceful 4-bedroom flat nestled in prime Banani. Close to top dining, embassies, international schools, and serene community parks.',
-    facilities: [
-      'Dual Elevator System',
-      'Full Heavy Generator Backup',
-      '2 Reserved Basement Car Parks',
-      '24/7 CCTV & Professional Guards',
-      'Modular Kitchen with Gas Line',
-      'Intercom & Video Door Phone',
-    ],
-    nearbyHighlights: [
-      'Banani Road 11 Dining Hub (2 min walk)',
-      'Kamal Ataturk Avenue (4 min walk)',
-      'Banani Lake Park & Walking Track (5 min)',
-      'American International School & Embaassies (7 min)',
-    ],
-    utilityNotice: 'Maintenance service charge covers generator, gas, security and cleaning.',
-    photos: [
-      PropertyPhoto(
-        label: 'Designer Drawing Room',
-        imageUrl: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.weekend_outlined,
-        gradientStart: Color(0xFF2F9E5E),
-        gradientEnd: Color(0xFF0B5A35),
-      ),
-      PropertyPhoto(
-        label: 'Master Bedroom with Balcony',
-        imageUrl: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.bedroom_parent_outlined,
-        gradientStart: Color(0xFF38A169),
-        gradientEnd: Color(0xFF1B4D3E),
-      ),
-      PropertyPhoto(
-        label: 'Gourmet Kitchen',
-        imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.kitchen_outlined,
-        gradientStart: Color(0xFF48BB78),
-        gradientEnd: Color(0xFF22543D),
-      ),
-      PropertyPhoto(
-        label: 'Greenery Balcony View',
-        imageUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
-        icon: Icons.park_outlined,
-        gradientStart: Color(0xFF285E61),
-        gradientEnd: Color(0xFF1A365D),
-      ),
-    ],
-  ),
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -722,7 +231,9 @@ void showFriendlyMessage(BuildContext context, String message) {
 // ---------------------------------------------------------------------------
 
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+  const MainShell({super.key, this.initialApprovedProperties});
+
+  final List<Property>? initialApprovedProperties;
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -733,90 +244,42 @@ class _MainShellState extends State<MainShell> {
   Set<String> _guestFavouriteIds = <String>{};
   int _selectedIndex = 0;
 
-  final List<SubmittedListing> _myListings = [
-    SubmittedListing(
-      id: 'BL-8021',
-      property: const Property(
-        id: 'demo-my-1',
-        title: 'Lakeview Corner Bachelor Room',
-        area: 'Dhanmondi, Dhaka',
-        landmark: 'Near Dhanmondi Lake Park',
-        fullAddress: 'Road 8/A, Dhanmondi R/A, Dhaka',
-        rentPerMonth: 9500,
-        depositAmount: 9500,
-        sizeSqFt: 380,
-        floorLevel: '3rd Floor',
-        balconies: 1,
-        type: PropertyType.bachelor,
-        bedrooms: 1,
-        bathrooms: 1,
-        availability: 'Available now',
-        availableNow: true,
-        icon: Icons.home_work,
-        gradientStart: Color(0xFF3AA6A0),
-        gradientEnd: Color(0xFF176B66),
-        description: 'Peaceful bachelor room with private lake-facing balcony, attached bath, and quiet study environment.',
-        facilities: [
-          'Attached Bathroom',
-          'Lake-facing Balcony',
-          'High-speed Wi-Fi',
-          '24/7 Security Guard',
-        ],
-        photos: [
-          PropertyPhoto(
-            label: 'Bachelor Room',
-            imageUrl: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&auto=format&fit=crop&q=80',
-          ),
-          PropertyPhoto(
-            label: 'Study Desk Area',
-            imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=1200&auto=format&fit=crop&q=80',
-          ),
-        ],
-      ),
-      status: ListingStatus.pendingReview,
-      submittedAt: DateTime(2026, 10, 21, 14, 30),
-    ),
-  ];
+  final List<SubmittedListing> _myListings = [];
 
   int _postInitialTab = 0;
 
   UserProfile _userProfile = const UserProfile(
-    name: 'Tanvir Ahmed',
-    email: 'tanvir.basha@gmail.com',
-    phone: '+880 1712-345678',
-    role: 'Verified Renter & Host',
+    name: 'BashaLagbe User',
+    email: '',
+    phone: '',
+    role: 'Guest Renter',
   );
 
-  final List<RentalRequest> _rentalRequests = [
-    RentalRequest(
-      id: 'REQ-4819',
-      property: demoProperties[0],
-      renterName: 'Tanvir Ahmed',
-      renterPhone: '+880 1712-345678',
-      preferredMoveIn: '1st of next month',
-      message: 'We are a family of 4. Is the building lift functional 24 hours during load shedding?',
-      requestedAt: DateTime(2026, 10, 20, 16, 45),
-      status: 'Pending Landlord Response',
-    ),
-  ];
+  final List<RentalRequest> _rentalRequests = [];
 
   StreamSubscription<User?>? _authSub;
   StreamSubscription<Set<String>>? _favouritesSub;
   StreamSubscription<List<Property>>? _approvedPropertiesSub;
   StreamSubscription<List<SubmittedListing>>? _userListingsSub;
+  StreamSubscription<List<RentalRequest>>? _tenantRequestsSub;
 
   User? _firebaseUser;
   List<Property> _approvedProperties = [];
   List<SubmittedListing> _userCloudListings = [];
+  List<RentalRequest> _userCloudRentalRequests = [];
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialApprovedProperties != null) {
+      _approvedProperties = List.from(widget.initialApprovedProperties!);
+    }
     _firebaseUser = AuthService.instance.currentUser;
     _subscribeToApprovedProperties();
     if (_firebaseUser != null) {
       _subscribeToUserFavourites(_firebaseUser!.uid);
       _subscribeToUserListings(_firebaseUser!.uid);
+      _subscribeToTenantRequests(_firebaseUser!.uid);
     }
     _authSub = AuthService.instance.authStateChanges.listen((user) {
       if (!mounted) return;
@@ -826,7 +289,8 @@ class _MainShellState extends State<MainShell> {
       setState(() {
         _firebaseUser = user;
         if (user != null) {
-          final name = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+          final name =
+              (user.displayName != null && user.displayName!.trim().isNotEmpty)
               ? user.displayName!
               : _userProfile.name;
           final email = user.email ?? _userProfile.email;
@@ -838,9 +302,11 @@ class _MainShellState extends State<MainShell> {
         if (user != null) {
           _subscribeToUserFavourites(user.uid);
           _subscribeToUserListings(user.uid);
+          _subscribeToTenantRequests(user.uid);
         } else {
           _unsubscribeAndRestoreGuestFavourites();
           _unsubscribeUserListings();
+          _unsubscribeTenantRequests();
         }
       }
     });
@@ -848,34 +314,38 @@ class _MainShellState extends State<MainShell> {
 
   void _subscribeToApprovedProperties() {
     _approvedPropertiesSub?.cancel();
-    _approvedPropertiesSub = FirestoreService.instance.streamApprovedProperties().listen(
-      (props) {
-        if (mounted) {
-          setState(() {
-            _approvedProperties = props;
-          });
-        }
-      },
-      onError: (e) {
-        debugPrint('Approved properties stream error: $e');
-      },
-    );
+    _approvedPropertiesSub = FirestoreService.instance
+        .streamApprovedProperties()
+        .listen(
+          (props) {
+            if (mounted) {
+              setState(() {
+                _approvedProperties = props;
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('Approved properties stream error: $e');
+          },
+        );
   }
 
   void _subscribeToUserListings(String uid) {
     _userListingsSub?.cancel();
-    _userListingsSub = FirestoreService.instance.streamUserListings(uid).listen(
-      (listings) {
-        if (mounted) {
-          setState(() {
-            _userCloudListings = listings;
-          });
-        }
-      },
-      onError: (e) {
-        debugPrint('User listings stream error: $e');
-      },
-    );
+    _userListingsSub = FirestoreService.instance
+        .streamUserListings(uid)
+        .listen(
+          (listings) {
+            if (mounted) {
+              setState(() {
+                _userCloudListings = listings;
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('User listings stream error: $e');
+          },
+        );
   }
 
   void _unsubscribeUserListings() {
@@ -886,24 +356,52 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _subscribeToTenantRequests(String uid) {
+    _tenantRequestsSub?.cancel();
+    _tenantRequestsSub = FirestoreService.instance
+        .streamTenantRequests(uid)
+        .listen(
+          (requests) {
+            if (mounted) {
+              setState(() {
+                _userCloudRentalRequests = requests;
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('Tenant requests stream error: $e');
+          },
+        );
+  }
+
+  void _unsubscribeTenantRequests() {
+    _tenantRequestsSub?.cancel();
+    _tenantRequestsSub = null;
+    setState(() {
+      _userCloudRentalRequests = [];
+    });
+  }
+
   void _subscribeToUserFavourites(String uid) {
     _favouritesSub?.cancel();
     setState(() {
       _favouriteIds.clear();
     });
-    _favouritesSub = FirestoreService.instance.streamFavourites(uid).listen(
-      (cloudFavs) {
-        if (mounted) {
-          setState(() {
-            _favouriteIds.clear();
-            _favouriteIds.addAll(cloudFavs);
-          });
-        }
-      },
-      onError: (e) {
-        debugPrint('Favourites subscription error: $e');
-      },
-    );
+    _favouritesSub = FirestoreService.instance
+        .streamFavourites(uid)
+        .listen(
+          (cloudFavs) {
+            if (mounted) {
+              setState(() {
+                _favouriteIds.clear();
+                _favouriteIds.addAll(cloudFavs);
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('Favourites subscription error: $e');
+          },
+        );
   }
 
   void _unsubscribeAndRestoreGuestFavourites() {
@@ -934,6 +432,7 @@ class _MainShellState extends State<MainShell> {
     _favouritesSub?.cancel();
     _approvedPropertiesSub?.cancel();
     _userListingsSub?.cancel();
+    _tenantRequestsSub?.cancel();
     super.dispose();
   }
 
@@ -1022,14 +521,27 @@ class _MainShellState extends State<MainShell> {
 
   void _handleRentalRequestSubmitted(RentalRequest request) {
     setState(() {
+      _rentalRequests.removeWhere((r) => r.id == request.id);
       _rentalRequests.insert(0, request);
     });
   }
 
-  void _handleCancelRentalRequest(String id) {
-    setState(() {
-      _rentalRequests.removeWhere((r) => r.id == id);
-    });
+  void _handleCancelRentalRequest(String id) async {
+    final isCloud = _userCloudRentalRequests.any((r) => r.id == id);
+    if (isCloud && _firebaseUser != null) {
+      try {
+        await FirestoreService.instance.cancelRentalRequest(
+          requestId: id,
+          tenantId: _firebaseUser!.uid,
+        );
+      } catch (e) {
+        debugPrint('Cancel rental request error: $e');
+      }
+    } else {
+      setState(() {
+        _rentalRequests.removeWhere((r) => r.id == id);
+      });
+    }
   }
 
   Widget _buildBody() {
@@ -1040,6 +552,9 @@ class _MainShellState extends State<MainShell> {
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
           approvedProperties: _approvedProperties,
+          firebaseUser: _firebaseUser,
+          onRequireSignIn: () => _openAuthSheet(),
+          onPostProperty: () => setState(() => _selectedIndex = 2),
         );
       case 1:
         return SavedScreen(
@@ -1047,6 +562,8 @@ class _MainShellState extends State<MainShell> {
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
           approvedProperties: _approvedProperties,
+          firebaseUser: _firebaseUser,
+          onRequireSignIn: () => _openAuthSheet(),
         );
       case 2:
         return PostPropertyScreen(
@@ -1057,7 +574,9 @@ class _MainShellState extends State<MainShell> {
           onListingSubmitted: (newListing) {
             setState(() {
               if (_firebaseUser != null) {
-                _userCloudListings.removeWhere((item) => item.id == newListing.id);
+                _userCloudListings.removeWhere(
+                  (item) => item.id == newListing.id,
+                );
                 _userCloudListings.insert(0, newListing);
               } else {
                 _myListings.insert(0, newListing);
@@ -1081,6 +600,7 @@ class _MainShellState extends State<MainShell> {
           onSignOut: () {
             _unsubscribeAndRestoreGuestFavourites();
             _unsubscribeUserListings();
+            _unsubscribeTenantRequests();
             setState(() {
               _firebaseUser = null;
             });
@@ -1092,7 +612,9 @@ class _MainShellState extends State<MainShell> {
           },
           listingsCount: _firebaseUser != null ? _userCloudListings.length : 0,
           savedCount: _favouriteIds.length,
-          rentalRequests: _rentalRequests,
+          rentalRequests: _firebaseUser != null
+              ? _userCloudRentalRequests
+              : _rentalRequests,
           onCancelRentalRequest: _handleCancelRentalRequest,
           onNavigateToMyListings: _navigateToMyListings,
           onNavigateToSaved: _navigateToSaved,
@@ -1104,6 +626,9 @@ class _MainShellState extends State<MainShell> {
           onToggleFavourite: _toggleFavourite,
           onRentalRequestSubmitted: _handleRentalRequestSubmitted,
           approvedProperties: _approvedProperties,
+          firebaseUser: _firebaseUser,
+          onRequireSignIn: () => _openAuthSheet(),
+          onPostProperty: () => setState(() => _selectedIndex = 2),
         );
     }
   }
@@ -1163,17 +688,20 @@ class SavedScreen extends StatelessWidget {
     required this.onToggleFavourite,
     this.onRentalRequestSubmitted,
     this.approvedProperties = const [],
+    this.firebaseUser,
+    this.onRequireSignIn,
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
   final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
   final List<Property> approvedProperties;
+  final User? firebaseUser;
+  final VoidCallback? onRequireSignIn;
 
   @override
   Widget build(BuildContext context) {
-    final combined = [...approvedProperties, ...demoProperties];
-    final savedProperties = combined
+    final savedProperties = approvedProperties
         .where((property) => favouriteIds.contains(property.id))
         .toList();
 
@@ -1269,7 +797,10 @@ class SavedScreen extends StatelessWidget {
                                   property: property,
                                   favouriteIds: favouriteIds,
                                   onToggleFavourite: onToggleFavourite,
-                                  onRentalRequestSubmitted: onRentalRequestSubmitted,
+                                  onRentalRequestSubmitted:
+                                      onRentalRequestSubmitted,
+                                  firebaseUser: firebaseUser,
+                                  onRequireSignIn: onRequireSignIn,
                                 ),
                               ),
                             );
@@ -1294,12 +825,18 @@ class HomeScreen extends StatefulWidget {
     required this.onToggleFavourite,
     this.onRentalRequestSubmitted,
     this.approvedProperties = const [],
+    this.firebaseUser,
+    this.onRequireSignIn,
+    this.onPostProperty,
   });
 
   final Set<String> favouriteIds;
   final ValueChanged<String> onToggleFavourite;
   final ValueChanged<RentalRequest>? onRentalRequestSubmitted;
   final List<Property> approvedProperties;
+  final User? firebaseUser;
+  final VoidCallback? onRequireSignIn;
+  final VoidCallback? onPostProperty;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1318,8 +855,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Property> get _results {
     final q = _query.trim().toLowerCase();
-    final combined = [...widget.approvedProperties, ...demoProperties];
-    return combined.where((property) {
+    final properties = widget.approvedProperties;
+    return properties.where((property) {
       final matchesFilter = _filter.matches(property.type);
       final matchesQuery =
           q.isEmpty ||
@@ -1366,32 +903,32 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelected: (filter) => setState(() => _filter = filter),
           ),
         ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const DemoNotice(),
-                const SizedBox(height: 14),
-                Text(
-                  results.length == 1
-                      ? '1 demo home found'
-                      : '${results.length} demo homes found',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                  ),
+        if (results.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text(
+                results.length == 1
+                    ? '1 home available'
+                    : '${results.length} homes available',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
                 ),
-              ],
+              ),
             ),
           ),
-        ),
         if (results.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: EmptyState(query: _query.trim(), onReset: _resetAll),
+            child: EmptyState(
+              hasApprovedProperties: widget.approvedProperties.isNotEmpty,
+              query: _query.trim(),
+              filter: _filter,
+              onReset: _resetAll,
+              onPostProperty: widget.onPostProperty,
+            ),
           )
         else
           SliverPadding(
@@ -1413,7 +950,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             property: property,
                             favouriteIds: widget.favouriteIds,
                             onToggleFavourite: widget.onToggleFavourite,
-                            onRentalRequestSubmitted: widget.onRentalRequestSubmitted,
+                            onRentalRequestSubmitted:
+                                widget.onRentalRequestSubmitted,
+                            firebaseUser: widget.firebaseUser,
+                            onRequireSignIn: widget.onRequireSignIn,
                           ),
                         ),
                       );
@@ -1587,42 +1127,6 @@ class FilterChipsRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Demo notice
-// ---------------------------------------------------------------------------
-
-class DemoNotice extends StatelessWidget {
-  const DemoNotice({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.amberLight,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline, size: 20, color: AppColors.amber),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Demo listings: all homes shown here are fictional samples for design preview. They are not real, verified or available properties.',
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.35,
-                color: AppColors.textDark,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Property card
 // ---------------------------------------------------------------------------
 
@@ -1685,18 +1189,27 @@ class PropertyCard extends StatelessWidget {
                   top: 10,
                   left: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: property.isDemo ? Colors.black.withValues(alpha: 0.70) : AppColors.darkGreen,
+                      color: property.isDemo
+                          ? Colors.black.withValues(alpha: 0.70)
+                          : AppColors.darkGreen,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          property.isDemo ? Icons.info_outline : Icons.verified_outlined,
+                          property.isDemo
+                              ? Icons.info_outline
+                              : Icons.verified_outlined,
                           size: 12,
-                          color: property.isDemo ? Colors.amberAccent : Colors.white,
+                          color: property.isDemo
+                              ? Colors.amberAccent
+                              : Colors.white,
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -1862,8 +1375,7 @@ class PropertyImagePlaceholder extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildGradientPlaceholder() {
     return Container(
       height: 160,
       width: double.infinity,
@@ -1886,29 +1398,116 @@ class PropertyImagePlaceholder extends StatelessWidget {
               color: const Color(0xDDFFFFFF),
             ),
           ),
-          Positioned(
-            left: 12,
-            bottom: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0x99000000),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'DEMO LISTING',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
+          if (property.isDemo)
+            Positioned(
+              left: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0x99000000),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'DEMO LISTING',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    PropertyPhoto? coverPhoto;
+    for (final p in property.photos) {
+      if (p.isCover && p.isNetworkPhoto) {
+        coverPhoto = p;
+        break;
+      }
+    }
+    if (coverPhoto == null) {
+      for (final p in property.photos) {
+        if (p.isNetworkPhoto) {
+          coverPhoto = p;
+          break;
+        }
+      }
+    }
+
+    if (coverPhoto != null && coverPhoto.imageUrl != null) {
+      return SizedBox(
+        height: 160,
+        width: double.infinity,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              coverPhoto.imageUrl!,
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Container(
+                  color: AppColors.lightGreen,
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!
+                            : null,
+                        color: AppColors.green,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) =>
+                  _buildGradientPlaceholder(),
+            ),
+            if (property.isDemo)
+              Positioned(
+                left: 12,
+                bottom: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x99000000),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'DEMO LISTING',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    return _buildGradientPlaceholder();
   }
 }
 
@@ -1962,16 +1561,92 @@ class InfoPill extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class EmptyState extends StatelessWidget {
-  const EmptyState({super.key, required this.query, required this.onReset});
+  const EmptyState({
+    super.key,
+    required this.hasApprovedProperties,
+    required this.query,
+    this.filter = PropertyFilter.all,
+    required this.onReset,
+    this.onPostProperty,
+  });
 
+  final bool hasApprovedProperties;
   final String query;
+  final PropertyFilter filter;
   final VoidCallback onReset;
+  final VoidCallback? onPostProperty;
 
   @override
   Widget build(BuildContext context) {
-    final message = query.isEmpty
-        ? 'There are no demo homes in this category yet.'
-        : 'We could not find any demo homes matching "$query".';
+    if (!hasApprovedProperties) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: const BoxDecoration(
+                color: AppColors.lightGreen,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.home_work_outlined,
+                size: 48,
+                color: AppColors.green,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No approved properties yet',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Verified rental apartments and rooms will appear here once reviewed and approved by moderators.\n\nAre you a property owner? Post your listing today!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: AppColors.textMuted,
+              ),
+            ),
+            if (onPostProperty != null) ...[
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onPostProperty,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 13,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.add_home_outlined),
+                label: const Text(
+                  'Post a Property',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    final message = query.isNotEmpty
+        ? 'We could not find any homes matching "$query".'
+        : 'There are no available homes in the "${filter.label}" category.';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
@@ -1993,16 +1668,17 @@ class EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           const Text(
-            'No homes found',
+            'No matching homes found',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
               color: AppColors.textDark,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            '$message\nTry another area such as Mirpur, Uttara or Sylhet, or search by a nearby landmark.',
+            '$message\nTry searching for another neighborhood or landmark, or clear your filters.',
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 14,

@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for BashaLagbe
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Property photos:
+    // Structured under: properties/{ownerUid}/{propertyId}/{fileName}
+    match /properties/{ownerUid}/{propertyId}/{fileName} {
+      // 1. Anyone can view listing photos (public browsing for approved listings)
+      allow read: if true;
+
+      // 2. Only the authenticated owner can upload or update photos for their property listings.
+      // Invariants:
+      // - Must be authenticated as the ownerUid in the path
+      // - Max image size: 5 MB
+      // - Content type must be an image
+      allow create, update: if request.auth != null
+        && request.auth.uid == ownerUid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+
+      // 3. Only the authenticated owner can delete their property photos (including rollback on failed submission)
+      allow delete: if request.auth != null
+        && request.auth.uid == ownerUid;
+    }
+
+    // Default deny for all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

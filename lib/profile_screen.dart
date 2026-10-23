@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/auth_sheet.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
+import 'package:basha_lagbe/services/firestore_service.dart';
 
 // ---------------------------------------------------------------------------
 // Models for User Profile & Rental Requests
@@ -46,6 +48,12 @@ class RentalRequest {
     this.message = '',
     required this.requestedAt,
     this.status = 'Pending Landlord Response',
+    this.ownerId,
+    this.tenantId,
+    this.tenantEmail,
+    this.landlordNote,
+    this.updatedAt,
+    this.isDemo = false,
   });
 
   final String id;
@@ -56,6 +64,55 @@ class RentalRequest {
   final String message;
   final DateTime requestedAt;
   final String status;
+  final String? ownerId;
+  final String? tenantId;
+  final String? tenantEmail;
+  final String? landlordNote;
+  final DateTime? updatedAt;
+  final bool isDemo;
+
+  bool get isPending {
+    final s = status.toLowerCase();
+    return s.contains('pending');
+  }
+
+  bool get isAccepted => status.toLowerCase() == 'accepted';
+  bool get isRejected => status.toLowerCase() == 'rejected';
+  bool get isCancelled => status.toLowerCase() == 'cancelled';
+
+  RentalRequest copyWith({
+    String? id,
+    Property? property,
+    String? renterName,
+    String? renterPhone,
+    String? preferredMoveIn,
+    String? message,
+    DateTime? requestedAt,
+    String? status,
+    String? ownerId,
+    String? tenantId,
+    String? tenantEmail,
+    String? landlordNote,
+    DateTime? updatedAt,
+    bool? isDemo,
+  }) {
+    return RentalRequest(
+      id: id ?? this.id,
+      property: property ?? this.property,
+      renterName: renterName ?? this.renterName,
+      renterPhone: renterPhone ?? this.renterPhone,
+      preferredMoveIn: preferredMoveIn ?? this.preferredMoveIn,
+      message: message ?? this.message,
+      requestedAt: requestedAt ?? this.requestedAt,
+      status: status ?? this.status,
+      ownerId: ownerId ?? this.ownerId,
+      tenantId: tenantId ?? this.tenantId,
+      tenantEmail: tenantEmail ?? this.tenantEmail,
+      landlordNote: landlordNote ?? this.landlordNote,
+      updatedAt: updatedAt ?? this.updatedAt,
+      isDemo: isDemo ?? this.isDemo,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -193,10 +250,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (modalContext) {
         return RentalRequestsSheet(
           rentalRequests: widget.rentalRequests,
-          onCancelRequest: (requestId) {
-            widget.onCancelRentalRequest(requestId);
-            Navigator.of(modalContext).pop();
-            showFriendlyMessage(context, 'Rental request withdrawn.');
+          currentUser: widget.firebaseUser,
+          onCancelRequest: (requestId) async {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: const Row(
+                  children: [
+                    Icon(Icons.cancel_outlined, color: AppColors.heart),
+                    SizedBox(width: 8),
+                    Text('Withdraw Request?'),
+                  ],
+                ),
+                content: const Text(
+                  'Are you sure you want to withdraw this rental request? You will be able to reapply later if you wish.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Keep Request', style: TextStyle(color: AppColors.textMuted)),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    style: FilledButton.styleFrom(backgroundColor: AppColors.heart),
+                    child: const Text('Withdraw'),
+                  ),
+                ],
+              ),
+            );
+
+            if (confirm == true) {
+              widget.onCancelRentalRequest(requestId);
+              if (modalContext.mounted) {
+                Navigator.of(modalContext).pop();
+              }
+              if (mounted) {
+                showFriendlyMessage(context, 'Rental request withdrawn.');
+              }
+            }
           },
           onExploreHomes: () {
             Navigator.of(modalContext).pop();
@@ -402,7 +494,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark),
                               ),
                               subtitle: const Text(
-                                'Demo Mode • Push & SMS alerts for new listings',
+                                'Push & SMS alerts for new listings',
                                 style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                               ),
                               value: _notificationsEnabled,
@@ -415,8 +507,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 showFriendlyMessage(
                                   context,
                                   val
-                                      ? 'Notification alerts enabled (Demo mode).'
-                                      : 'Notification alerts paused (Demo mode).',
+                                      ? 'Notification alerts enabled.'
+                                      : 'Notification alerts paused.',
                                 );
                               },
                             ),
@@ -511,7 +603,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       // Version tag
                       const Center(
                         child: Text(
-                          'BashaLagbe v1.0.0 (Demo Preview)\nBuilt with Flutter • Material 3',
+                          'BashaLagbe v1.0.0\nBuilt with Flutter • Material 3',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 11.5,
@@ -793,27 +885,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
           ],
-
-          const SizedBox(height: 8),
-
-          // UID
-          Row(
-            children: [
-              const Icon(Icons.fingerprint, size: 16, color: AppColors.textMuted),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Firebase UID: ${user.uid}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    color: AppColors.textMuted,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
 
           const SizedBox(height: 16),
 
@@ -1282,11 +1353,71 @@ class RentalRequestsSheet extends StatelessWidget {
     required this.rentalRequests,
     required this.onCancelRequest,
     required this.onExploreHomes,
+    this.currentUser,
   });
 
   final List<RentalRequest> rentalRequests;
   final ValueChanged<String> onCancelRequest;
   final VoidCallback onExploreHomes;
+  final User? currentUser;
+
+  static String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final month = months[dt.month - 1];
+    return '${dt.day} $month ${dt.year}';
+  }
+
+  Widget _buildStatusBadge(RentalRequest req) {
+    Color bg;
+    Color fg;
+    IconData icon;
+    String label;
+
+    if (req.isAccepted) {
+      bg = const Color(0xFFE3F4EA);
+      fg = const Color(0xFF0E5E3B);
+      icon = Icons.check_circle_outline;
+      label = 'Accepted';
+    } else if (req.isRejected) {
+      bg = const Color(0xFFFFE3E3);
+      fg = const Color(0xFFC53030);
+      icon = Icons.highlight_off_outlined;
+      label = 'Declined';
+    } else if (req.isCancelled) {
+      bg = Colors.grey.shade200;
+      fg = AppColors.textMuted;
+      icon = Icons.cancel_outlined;
+      label = 'Withdrawn';
+    } else {
+      bg = AppColors.amberLight;
+      fg = AppColors.amber;
+      icon = Icons.hourglass_top_outlined;
+      label = 'Pending Review';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1337,7 +1468,7 @@ class RentalRequestsSheet extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${rentalRequests.length} active demo request${rentalRequests.length == 1 ? '' : 's'}',
+                      '${rentalRequests.length} request${rentalRequests.length == 1 ? '' : 's'}',
                       style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted),
                     ),
                   ],
@@ -1445,27 +1576,37 @@ class RentalRequestsSheet extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.amberLight,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.schedule, size: 12, color: AppColors.amber),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        req.status,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.amber,
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (req.isDemo) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.grey.shade300),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.info_outline, size: 10, color: AppColors.textMuted),
+                                            SizedBox(width: 3),
+                                            Text(
+                                              'Demo',
+                                              style: TextStyle(
+                                                fontSize: 10.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.textMuted,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
+                                      const SizedBox(width: 6),
                                     ],
-                                  ),
+                                    _buildStatusBadge(req),
+                                  ],
                                 ),
                               ],
                             ),
@@ -1499,8 +1640,119 @@ class RentalRequestsSheet extends StatelessWidget {
                                   border: Border.all(color: AppColors.border),
                                 ),
                                 child: Text(
-                                  'Note: "${req.message}"',
+                                  'Your Note: "${req.message}"',
                                   style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textDark),
+                                ),
+                              ),
+                            ],
+                            if (req.landlordNote != null && req.landlordNote!.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: req.isAccepted
+                                      ? const Color(0xFFE3F4EA).withAlpha(160)
+                                      : const Color(0xFFFFE3E3).withAlpha(160),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: req.isAccepted
+                                        ? const Color(0xFF0E5E3B).withAlpha(60)
+                                        : const Color(0xFFC53030).withAlpha(60),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      req.isAccepted ? Icons.check_circle_outline : Icons.info_outline,
+                                      size: 14,
+                                      color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Landlord Note: "${req.landlordNote}"',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontStyle: FontStyle.italic,
+                                          color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            if (req.isAccepted) ...[
+                              LandlordContactCard(
+                                propertyId: req.property.id,
+                                landlordNote: req.landlordNote,
+                              ),
+                            ] else if (req.isPending) ...[
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF9E6),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFB7791F).withAlpha(60)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.lock_clock_rounded, size: 14, color: Color(0xFFB7791F)),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Landlord contact details will be revealed here once accepted.',
+                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF7A4F00)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else if (req.isRejected) ...[
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFEAEA),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFC53030).withAlpha(60)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.cancel_outlined, size: 14, color: Color(0xFFC53030)),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Request declined. Landlord contact details remain private.',
+                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF8B1E1E)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else if (req.isCancelled) ...[
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey.shade300),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Request withdrawn. Contact details are unavailable.',
+                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppColors.textMuted),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1509,17 +1761,33 @@ class RentalRequestsSheet extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'Tracking: ${req.id}',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  'Submitted ${_formatDate(req.requestedAt)}',
+                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
                                 ),
-                                TextButton(
-                                  onPressed: () => onCancelRequest(req.id),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: AppColors.heart,
-                                    visualDensity: VisualDensity.compact,
+                                if (req.isPending)
+                                  TextButton(
+                                    onPressed: () => onCancelRequest(req.id),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.heart,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    child: const Text('Withdraw Request', style: TextStyle(fontSize: 12)),
+                                  )
+                                else if (req.isAccepted)
+                                  const Text(
+                                    'Accepted by Landlord',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF0E5E3B)),
+                                  )
+                                else if (req.isRejected)
+                                  const Text(
+                                    'Declined by Landlord',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFFC53030)),
+                                  )
+                                else if (req.isCancelled)
+                                  const Text(
+                                    'Withdrawn by You',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppColors.textMuted),
                                   ),
-                                  child: const Text('Withdraw Request', style: TextStyle(fontSize: 12)),
-                                ),
                               ],
                             ),
                           ],
@@ -1527,6 +1795,367 @@ class RentalRequestsSheet extends StatelessWidget {
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Landlord Contact Card (Revealed only to tenants with accepted requests)
+// ---------------------------------------------------------------------------
+
+class LandlordContactCard extends StatefulWidget {
+  const LandlordContactCard({
+    super.key,
+    required this.propertyId,
+    this.landlordNote,
+  });
+
+  final String propertyId;
+  final String? landlordNote;
+
+  @override
+  State<LandlordContactCard> createState() => _LandlordContactCardState();
+}
+
+class _LandlordContactCardState extends State<LandlordContactCard> {
+  int _retryKey = 0;
+
+  void _retry() {
+    setState(() {
+      _retryKey++;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyedSubtree(
+      key: ValueKey(_retryKey),
+      child: StreamBuilder<LandlordContactInfo?>(
+        stream: FirestoreService.instance.streamPropertyContactInfo(widget.propertyId),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            final error = snapshot.error;
+            final isPermissionDenied = error is FirebaseException
+                ? error.code == 'permission-denied'
+                : error.toString().contains('permission-denied') ||
+                    error.toString().contains('Missing or insufficient permissions');
+
+            return Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFF97316).withAlpha(80)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.shield_outlined, color: Color(0xFFEA580C), size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Contact Details Unavailable',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF9A3412),
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _retry,
+                        icon: const Icon(Icons.refresh, size: 15),
+                        label: const Text('Retry', style: TextStyle(fontSize: 12)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFC2410C),
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isPermissionDenied
+                        ? 'Contact information is currently restricted or permissions are pending server verification. If your rental request was just accepted, please tap Retry.'
+                        : FirestoreService.getFriendlyErrorMessage(error ?? 'An unexpected error occurred.'),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.35),
+                  ),
+                  if (widget.landlordNote != null && widget.landlordNote!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Landlord Note: "${widget.landlordNote}"',
+                      style: const TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic, color: AppColors.textMuted),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F9F6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.green.withAlpha(60)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading landlord contact details...', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                ],
+              ),
+            );
+          }
+
+          final info = snapshot.data;
+          if (info == null || info.isEmpty) {
+            return Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F4EA),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF0E5E3B).withAlpha(60)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF0E5E3B), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Rental Request Accepted!',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0E5E3B),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.landlordNote != null && widget.landlordNote!.isNotEmpty
+                              ? 'The landlord has accepted your request. Contact note: "${widget.landlordNote}"'
+                              : 'The landlord has accepted your request, but did not provide direct phone/email numbers. Please wait for the landlord to reach out or visit the property.',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textDark),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+        return Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FAF4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF0E5E3B).withAlpha(80), width: 1.2),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E5E3B).withAlpha(25),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.verified_user_rounded, color: Color(0xFF0E5E3B), size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Landlord Contact Details',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0E5E3B),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E5E3B),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'UNLOCKED',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Revealed because your rental request was accepted.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 12),
+
+              if (info.phone != null && info.phone!.trim().isNotEmpty) ...[
+                _ContactActionRow(
+                  icon: Icons.phone_rounded,
+                  label: 'Phone Number',
+                  value: info.phone!.trim(),
+                  actionLabel: 'Call / Copy',
+                  onAction: () {
+                    Clipboard.setData(ClipboardData(text: info.phone!.trim()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Phone number copied to clipboard: ${info.phone!.trim()}'),
+                        backgroundColor: AppColors.darkGreen,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              if (info.whatsapp != null && info.whatsapp!.trim().isNotEmpty) ...[
+                _ContactActionRow(
+                  icon: Icons.chat_bubble_rounded,
+                  label: 'WhatsApp',
+                  value: info.whatsapp!.trim(),
+                  actionLabel: 'Copy WhatsApp',
+                  onAction: () {
+                    Clipboard.setData(ClipboardData(text: info.whatsapp!.trim()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('WhatsApp number copied to clipboard: ${info.whatsapp!.trim()}'),
+                        backgroundColor: AppColors.darkGreen,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              if (info.email != null && info.email!.trim().isNotEmpty) ...[
+                _ContactActionRow(
+                  icon: Icons.email_rounded,
+                  label: 'Email Address',
+                  value: info.email!.trim(),
+                  actionLabel: 'Copy Email',
+                  onAction: () {
+                    Clipboard.setData(ClipboardData(text: info.email!.trim()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Email address copied to clipboard: ${info.email!.trim()}'),
+                        backgroundColor: AppColors.darkGreen,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              if (info.otherLink != null && info.otherLink!.trim().isNotEmpty) ...[
+                _ContactActionRow(
+                  icon: Icons.link_rounded,
+                  label: (info.otherTitle != null && info.otherTitle!.trim().isNotEmpty)
+                      ? info.otherTitle!.trim()
+                      : 'Other Contact / Link',
+                  value: info.otherLink!.trim(),
+                  actionLabel: 'Copy Link',
+                  onAction: () {
+                    Clipboard.setData(ClipboardData(text: info.otherLink!.trim()));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Link copied to clipboard: ${info.otherLink!.trim()}'),
+                        backgroundColor: AppColors.darkGreen,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+}
+
+class _ContactActionRow extends StatelessWidget {
+  const _ContactActionRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.green),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+                SelectableText(
+                  value,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textDark),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: onAction,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: const Size(40, 32),
+              visualDensity: VisualDensity.compact,
+            ),
+            child: Text(actionLabel, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -1720,7 +2349,7 @@ class AboutBashaLagbeSheet extends StatelessWidget {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark),
                   ),
                   Text(
-                    'Version 1.0.0 (Demo Preview)',
+                    'Version 1.0.0',
                     style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                   ),
                 ],
@@ -1835,7 +2464,7 @@ class PrivacyTermsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Demo Privacy Guarantee',
+            'Privacy Guarantee',
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark),
           ),
           const SizedBox(height: 6),

@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
 import 'package:basha_lagbe/main.dart';
+import 'package:basha_lagbe/profile_screen.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
+import 'package:basha_lagbe/services/cloudinary_service.dart';
 
 // ---------------------------------------------------------------------------
 // Models for Post Property Wizard & My Listings
@@ -40,6 +43,7 @@ class WizardPhotoItem {
     this.label = 'Property Photo',
     this.bytes,
     this.networkUrl,
+    this.storagePath,
     this.isCover = false,
   });
 
@@ -47,6 +51,7 @@ class WizardPhotoItem {
   String label;
   final Uint8List? bytes;
   final String? networkUrl;
+  final String? storagePath;
   bool isCover;
 
   bool get isMemory => bytes != null;
@@ -106,10 +111,19 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
   int _currentStep = 0; // 0..4 (Steps 1 to 5)
   bool _isSubmitting = false;
 
+  StreamSubscription<List<RentalRequest>>? _landlordRequestsSub;
+  List<RentalRequest> _incomingRequests = [];
+
   @override
   void initState() {
     super.initState();
     _activeTab = widget.initialTab;
+    if (widget.firebaseUser != null) {
+      _subscribeToLandlordRequests(widget.firebaseUser!.uid);
+      if (widget.firebaseUser!.email != null && widget.firebaseUser!.email!.isNotEmpty) {
+        _contactEmailController.text = widget.firebaseUser!.email!;
+      }
+    }
   }
 
   @override
@@ -118,6 +132,34 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
     if (oldWidget.initialTab != widget.initialTab) {
       _activeTab = widget.initialTab;
     }
+    if (oldWidget.firebaseUser?.uid != widget.firebaseUser?.uid) {
+      _landlordRequestsSub?.cancel();
+      if (widget.firebaseUser != null) {
+        _subscribeToLandlordRequests(widget.firebaseUser!.uid);
+      } else {
+        setState(() {
+          _incomingRequests = [];
+        });
+      }
+    }
+  }
+
+  void _subscribeToLandlordRequests(String ownerId) {
+    _landlordRequestsSub?.cancel();
+    _landlordRequestsSub = FirestoreService.instance
+        .streamLandlordRequests(ownerId)
+        .listen(
+          (requests) {
+            if (mounted) {
+              setState(() {
+                _incomingRequests = requests;
+              });
+            }
+          },
+          onError: (e) {
+            debugPrint('Landlord requests stream error: $e');
+          },
+        );
   }
 
   // Step 1 Controllers & State
@@ -137,6 +179,14 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
   final TextEditingController _utilityController = TextEditingController();
   final TextEditingController _floorController = TextEditingController();
   final TextEditingController _sizeController = TextEditingController();
+
+  // Step 3 Landlord Contact Details (Optional & Private)
+  final TextEditingController _contactPhoneController = TextEditingController();
+  final TextEditingController _contactWhatsappController = TextEditingController();
+  final TextEditingController _contactEmailController = TextEditingController();
+  final TextEditingController _contactOtherTitleController = TextEditingController();
+  final TextEditingController _contactOtherLinkController = TextEditingController();
+  bool _whatsappSameAsPhone = false;
 
   // Family specific
   int _bedrooms = 3;
@@ -171,6 +221,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
 
   @override
   void dispose() {
+    _landlordRequestsSub?.cancel();
     _titleController.dispose();
     _descriptionController.dispose();
     _areaController.dispose();
@@ -181,85 +232,12 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
     _utilityController.dispose();
     _floorController.dispose();
     _sizeController.dispose();
+    _contactPhoneController.dispose();
+    _contactWhatsappController.dispose();
+    _contactEmailController.dispose();
+    _contactOtherTitleController.dispose();
+    _contactOtherLinkController.dispose();
     super.dispose();
-  }
-
-  // -------------------------------------------------------------------------
-  // Pre-fill quick demo data for easy testing
-  // -------------------------------------------------------------------------
-  void _fillSampleData() {
-    setState(() {
-      _titleController.text = 'South Breeze Green Nest Flat';
-      _descriptionController.text =
-          'Spacious and naturally illuminated apartment with high ceilings, separate dining hall, and quiet residential neighborhood. Ideal for families seeking a peaceful environment.';
-      _propertyType = PropertyType.family;
-      _selectedDivision = 'Dhaka';
-      _areaController.text = 'Mirpur 10, Dhaka';
-      _addressController.text = 'House 14, Road 4, Block C, Section 10';
-      _landmarkController.text = '3 minutes walk from Mirpur 10 Metro Rail Station';
-      _rentController.text = '22000';
-      _depositController.text = '44000';
-      _utilityController.text = 'Water and gas included; electricity as per digital prepaid meter.';
-      _floorController.text = '4th Floor (Lift-3)';
-      _sizeController.text = '1350';
-      _bedrooms = 3;
-      _bathrooms = 2;
-      _balconies = 2;
-      _availabilityStatus = 'Available now';
-      _preferredTenant = 'Family only';
-      _selectedFacilities.addAll([
-        'Lift (Elevator)',
-        'Standby Generator',
-        'Titas Pipeline Gas',
-        '24/7 Security Guard',
-        'CCTV Surveillance',
-        'Dedicated Car Parking',
-        'Balcony / Veranda',
-      ]);
-    });
-    _addSamplePhotos();
-    showFriendlyMessage(context, 'Sample demo data filled for all steps!');
-  }
-
-  void _addSamplePhotos() {
-    final sampleUrls = [
-      {
-        'label': 'Living & Dining Room',
-        'url':
-            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
-      },
-      {
-        'label': 'Master Bedroom',
-        'url':
-            'https://images.unsplash.com/photo-1540518614846-7ede433c4550?w=1200&auto=format&fit=crop&q=80',
-      },
-      {
-        'label': 'Modern Kitchen',
-        'url':
-            'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=1200&auto=format&fit=crop&q=80',
-      },
-      {
-        'label': 'Open Balcony View',
-        'url':
-            'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=1200&auto=format&fit=crop&q=80',
-      },
-    ];
-
-    setState(() {
-      for (final sample in sampleUrls) {
-        if (_photos.length < 8) {
-          final isFirst = _photos.isEmpty;
-          _photos.add(
-            WizardPhotoItem(
-              id: 'sample-${DateTime.now().microsecondsSinceEpoch}-${_photos.length}',
-              label: sample['label']!,
-              networkUrl: sample['url']!,
-              isCover: isFirst,
-            ),
-          );
-        }
-      }
-    });
   }
 
   Future<void> _pickImagesFromDevice() async {
@@ -270,6 +248,13 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       for (final file in pickedFiles) {
         if (_photos.length >= 8) break;
         final bytes = await file.readAsBytes();
+        final validationError = CloudinaryService.validateImageBytes(bytes, fileName: file.name);
+        if (validationError != null) {
+          if (mounted) {
+            showFriendlyMessage(context, '${file.name}: $validationError');
+          }
+          continue;
+        }
         final isFirst = _photos.isEmpty;
         setState(() {
           _photos.add(
@@ -333,10 +318,30 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
           showFriendlyMessage(context, 'Please enter a valid monthly rent amount in Taka.');
           return false;
         }
+        final phoneError = LandlordContactInfo.validateOptionalPhone(_contactPhoneController.text);
+        if (phoneError != null) {
+          showFriendlyMessage(context, phoneError);
+          return false;
+        }
+        final whatsappError = LandlordContactInfo.validateOptionalPhone(_contactWhatsappController.text);
+        if (whatsappError != null) {
+          showFriendlyMessage(context, 'WhatsApp: $whatsappError');
+          return false;
+        }
+        final emailError = LandlordContactInfo.validateOptionalEmail(_contactEmailController.text);
+        if (emailError != null) {
+          showFriendlyMessage(context, emailError);
+          return false;
+        }
+        final linkError = LandlordContactInfo.validateOptionalLink(_contactOtherLinkController.text);
+        if (linkError != null) {
+          showFriendlyMessage(context, linkError);
+          return false;
+        }
         return true;
       case 3:
         if (_photos.isEmpty) {
-          showFriendlyMessage(context, 'Please add at least 1 photo or tap "Add Sample Photos".');
+          showFriendlyMessage(context, 'Please add at least 1 photo.');
           return false;
         }
         return true;
@@ -399,25 +404,42 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
     final deposit = int.tryParse(_depositController.text.replaceAll(',', '').trim()) ?? (rent * 2);
     final size = int.tryParse(_sizeController.text.replaceAll(',', '').trim()) ?? 1000;
 
-    // Build photo list for Firestore
-    final List<Map<String, dynamic>> firestorePhotos = _photos.map((item) {
-      return {
-        'label': item.label,
-        'imageUrl': item.networkUrl,
-        'storagePath': null,
-        'isCover': item.isCover,
-      };
-    }).toList();
+    final propertyId = FirestoreService.instance.generatePropertyId();
 
-    // Fallback if no photos were added
-    if (firestorePhotos.isEmpty) {
-      firestorePhotos.add({
-        'label': 'Main Living Space',
-        'imageUrl':
-            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1200&auto=format&fit=crop&q=80',
-        'storagePath': null,
-        'isCover': true,
-      });
+    final CloudinaryPhotosUploadResult uploadResult;
+    try {
+      uploadResult = await FirestoreService.instance.uploadPropertyPhotos(
+        ownerId: widget.firebaseUser!.uid,
+        propertyId: propertyId,
+        photos: _photos,
+      );
+    } catch (uploadError) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to upload photos: ${FirestoreService.getFriendlyErrorMessage(uploadError)}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+      return;
+    }
+
+    final firestorePhotos = uploadResult.photos;
+
+    // Update local photo items with upload paths and URLs
+    for (var i = 0; i < firestorePhotos.length && i < _photos.length; i++) {
+      _photos[i] = WizardPhotoItem(
+        id: _photos[i].id,
+        label: _photos[i].label,
+        bytes: _photos[i].bytes,
+        networkUrl: firestorePhotos[i]['imageUrl'] as String?,
+        storagePath: firestorePhotos[i]['storagePath'] as String?,
+        isCover: _photos[i].isCover,
+      );
     }
 
     final facilitiesList = _selectedFacilities.toList();
@@ -467,12 +489,35 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       final docId = await FirestoreService.instance.createProperty(
         ownerId: widget.firebaseUser!.uid,
         ownerEmail: widget.firebaseUser!.email ?? '',
+        propertyId: propertyId,
         data: propertyData,
       );
 
+      final contactInfo = LandlordContactInfo(
+        phone: _contactPhoneController.text.trim().isNotEmpty ? _contactPhoneController.text.trim() : null,
+        whatsapp: _contactWhatsappController.text.trim().isNotEmpty ? _contactWhatsappController.text.trim() : null,
+        email: _contactEmailController.text.trim().isNotEmpty ? _contactEmailController.text.trim() : null,
+        otherTitle: _contactOtherTitleController.text.trim().isNotEmpty ? _contactOtherTitleController.text.trim() : null,
+        otherLink: _contactOtherLinkController.text.trim().isNotEmpty ? _contactOtherLinkController.text.trim() : null,
+      );
+      if (contactInfo.isNotEmpty) {
+        try {
+          await FirestoreService.instance.setPropertyContactInfo(
+            propertyId: docId,
+            ownerId: widget.firebaseUser!.uid,
+            contactInfo: contactInfo,
+          );
+        } catch (contactErr) {
+          debugPrint('Error saving landlord contact details: $contactErr');
+        }
+      }
+
       final propertyPhotos = firestorePhotos.map((p) => PropertyPhoto(
-        label: p['label'] as String,
+        label: p['label'] as String? ?? 'Property Photo',
         imageUrl: p['imageUrl'] as String?,
+        storagePath: p['storagePath'] as String?,
+        isCover: p['isCover'] as bool? ?? false,
+        order: (p['order'] as num?)?.toInt() ?? 0,
       )).toList();
 
       final newProperty = Property(
@@ -524,6 +569,14 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
         _showSubmissionSuccessDialog(submitted);
       }
     } catch (e) {
+      // Roll back newly uploaded photos if property document creation failed in Firestore
+      if (uploadResult.deleteTokens.isNotEmpty) {
+        try {
+          await FirestoreService.instance.deletePhotosByTokens(uploadResult.deleteTokens);
+        } catch (cleanupErr) {
+          debugPrint('Error cleaning up photos after property creation failure: $cleanupErr');
+        }
+      }
       if (mounted) {
         setState(() {
           _isSubmitting = false;
@@ -711,16 +764,6 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                   ],
                 ),
               ),
-              if (_activeTab == 0)
-                TextButton.icon(
-                  onPressed: _fillSampleData,
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: AppColors.darkGreen,
-                  ),
-                  icon: const Icon(Icons.auto_fix_high, size: 16),
-                  label: const Text('Auto-fill', style: TextStyle(fontSize: 12)),
-                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1631,6 +1674,160 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
             );
           }).toList(),
         ),
+
+        const SizedBox(height: 24),
+        const Divider(color: AppColors.border),
+        const SizedBox(height: 14),
+
+        // -------------------------------------------------------------------
+        // Landlord Direct Contact Details (Optional & Private)
+        // -------------------------------------------------------------------
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F9F6),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.green.withAlpha(80)),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.security_outlined, color: AppColors.green, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Landlord Contact Privacy Protection',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkGreen,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'The contact details you provide below are never shown publicly. They will only be unlocked for a tenant after you personally accept their rental request.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        const Text('Contact Phone Number (Optional)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _contactPhoneController,
+          keyboardType: TextInputType.phone,
+          onChanged: (val) {
+            if (_whatsappSameAsPhone) {
+              setState(() {
+                _contactWhatsappController.text = val;
+              });
+            }
+          },
+          decoration: _buildInputDecoration(
+            hintText: 'e.g. 01712345678',
+            prefixIcon: Icons.phone_outlined,
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('WhatsApp Number (Optional)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Checkbox(
+                  value: _whatsappSameAsPhone,
+                  activeColor: AppColors.green,
+                  visualDensity: VisualDensity.compact,
+                  onChanged: (val) {
+                    setState(() {
+                      _whatsappSameAsPhone = val ?? false;
+                      if (_whatsappSameAsPhone) {
+                        _contactWhatsappController.text = _contactPhoneController.text;
+                      }
+                    });
+                  },
+                ),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _whatsappSameAsPhone = !_whatsappSameAsPhone;
+                      if (_whatsappSameAsPhone) {
+                        _contactWhatsappController.text = _contactPhoneController.text;
+                      }
+                    });
+                  },
+                  child: const Text('Same as phone', style: TextStyle(fontSize: 12, color: AppColors.textDark)),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _contactWhatsappController,
+          keyboardType: TextInputType.phone,
+          enabled: !_whatsappSameAsPhone,
+          decoration: _buildInputDecoration(
+            hintText: 'e.g. 01712345678',
+            prefixIcon: Icons.chat_bubble_outline,
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        const Text('Contact Email Address (Optional)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _contactEmailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: _buildInputDecoration(
+            hintText: 'e.g. landlord@example.com',
+            prefixIcon: Icons.email_outlined,
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        const Text('Other Contact Method / Link (Optional)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: TextField(
+                controller: _contactOtherTitleController,
+                decoration: _buildInputDecoration(
+                  hintText: 'Label (e.g. Messenger)',
+                  prefixIcon: Icons.label_outline,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 6,
+              child: TextField(
+                controller: _contactOtherLinkController,
+                keyboardType: TextInputType.url,
+                decoration: _buildInputDecoration(
+                  hintText: 'Link / URL (e.g. https://m.me/username)',
+                  prefixIcon: Icons.link_outlined,
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -1689,33 +1886,18 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
         const SizedBox(height: 16),
 
         // Action Buttons Row
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _photos.length >= 8 ? null : _pickImagesFromDevice,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                icon: const Icon(Icons.photo_library_outlined, size: 20),
-                label: const Text('Pick from Device', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _photos.length >= 8 ? null : _pickImagesFromDevice,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.green,
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-              onPressed: _photos.length >= 8 ? null : _addSamplePhotos,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.darkGreen,
-                side: const BorderSide(color: AppColors.border),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: const Icon(Icons.auto_awesome, size: 18),
-              label: const Text('Add Demo Photos'),
-            ),
-          ],
+            icon: const Icon(Icons.photo_library_outlined, size: 20),
+            label: const Text('Pick from Device', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
         ),
 
         const SizedBox(height: 12),
@@ -1768,7 +1950,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Tap "Pick from Device" or "Add Demo Photos" above to include photos of your listing.',
+                  'Tap "Pick from Device" above to include photos of your listing.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 13, color: AppColors.textMuted),
                 ),
@@ -2030,6 +2212,40 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
 
         const SizedBox(height: 14),
 
+        // Section: Direct Contact Methods Review
+        _buildReviewCard(
+          title: 'Direct Contact Methods (Private)',
+          icon: Icons.contact_phone_outlined,
+          onEdit: () => _jumpToStep(2),
+          children: [
+            if (_contactPhoneController.text.trim().isEmpty &&
+                _contactWhatsappController.text.trim().isEmpty &&
+                _contactEmailController.text.trim().isEmpty &&
+                _contactOtherLinkController.text.trim().isEmpty)
+              const Text(
+                'No direct contact methods provided. Tenants will only be able to view notes in their request screen upon acceptance.',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              )
+            else ...[
+              if (_contactPhoneController.text.trim().isNotEmpty)
+                _buildReviewRow('Phone', _contactPhoneController.text.trim()),
+              if (_contactWhatsappController.text.trim().isNotEmpty)
+                _buildReviewRow('WhatsApp', _contactWhatsappController.text.trim()),
+              if (_contactEmailController.text.trim().isNotEmpty)
+                _buildReviewRow('Email', _contactEmailController.text.trim()),
+              if (_contactOtherLinkController.text.trim().isNotEmpty)
+                _buildReviewRow(
+                  _contactOtherTitleController.text.trim().isNotEmpty
+                      ? _contactOtherTitleController.text.trim()
+                      : 'Other Link',
+                  _contactOtherLinkController.text.trim(),
+                ),
+            ],
+          ],
+        ),
+
+        const SizedBox(height: 14),
+
         // Section 5: Photos Review
         _buildReviewCard(
           title: 'Photos (${_photos.length})',
@@ -2056,7 +2272,14 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                           borderRadius: BorderRadius.circular(10),
                           child: photo.isMemory
                               ? Image.memory(photo.bytes!, width: 80, height: 80, fit: BoxFit.cover)
-                              : Image.network(photo.networkUrl!, width: 80, height: 80, fit: BoxFit.cover),
+                              : (photo.isNetwork
+                                  ? Image.network(photo.networkUrl!, width: 80, height: 80, fit: BoxFit.cover)
+                                  : Container(
+                                      width: 80,
+                                      height: 80,
+                                      color: AppColors.lightGreen,
+                                      child: const Icon(Icons.home, color: AppColors.green),
+                                    )),
                         ),
                         if (photo.isCover)
                           Positioned(
@@ -2099,7 +2322,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Local Demo Moderation Notice: When you tap submit, this listing is saved locally and marked as "Pending Review". It will appear in your "My Listings" tab for preview.',
+                  'Moderation Notice: When you submit, this listing is sent for review and marked as "Pending Review". It will appear in your "My Listings" tab for tracking.',
                   style: TextStyle(fontSize: 12.5, height: 1.4, color: AppColors.textDark),
                 ),
               ),
@@ -2192,6 +2415,26 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
     );
   }
 
+  void _openLandlordRequestsSheet({Property? propertyFilter}) {
+    final uid = widget.firebaseUser?.uid;
+    if (uid == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return LandlordRequestsSheet(
+          propertyFilter: propertyFilter,
+          currentUserId: uid,
+          initialRequests: propertyFilter != null
+              ? _incomingRequests.where((r) => r.property.id == propertyFilter.id).toList()
+              : _incomingRequests,
+        );
+      },
+    );
+  }
+
   // =========================================================================
   // VIEW: My Listings Section
   // =========================================================================
@@ -2280,12 +2523,81 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       );
     }
 
+    final showSummaryCard = _incomingRequests.isNotEmpty;
+    final totalItems = listings.length + (showSummaryCard ? 1 : 0);
+
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      itemCount: listings.length,
+      itemCount: totalItems,
       itemBuilder: (context, index) {
-        final item = listings[index];
+        if (showSummaryCard && index == 0) {
+          final pendingAll = _incomingRequests.where((r) => r.isPending).length;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.lightGreen,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.green.withAlpha(90)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.inbox_rounded, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Incoming Rental Requests (${_incomingRequests.length})',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        pendingAll > 0
+                            ? '$pendingAll pending landlord review'
+                            : 'All requests reviewed',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: pendingAll > 0 ? AppColors.darkGreen : AppColors.textMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton(
+                  onPressed: () => _openLandlordRequestsSheet(),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.darkGreen,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Manage All', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final actualIndex = showSummaryCard ? index - 1 : index;
+        final item = listings[actualIndex];
         final property = item.property;
+        final propRequests = _incomingRequests
+            .where((r) => r.property.id == property.id)
+            .toList();
+        final pendingCount = propRequests.where((r) => r.isPending).length;
 
         return Card(
           margin: const EdgeInsets.only(bottom: 16),
@@ -2394,30 +2706,11 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                 ),
               ),
 
-              // Tracking & Source Notice
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                color: AppColors.background,
-                child: Row(
-                  children: [
-                    const Icon(Icons.tag, size: 14, color: AppColors.textMuted),
-                    const SizedBox(width: 4),
-                    Text(
-                      'ID: ${item.id}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted),
-                    ),
-                    const Spacer(),
-                    Text(
-                      item.isDemo ? 'Demo Listing' : 'Cloud Listing (Firestore)',
-                      style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
-                    ),
-                  ],
-                ),
-              ),
+              const Divider(height: 1, thickness: 1, color: AppColors.border),
 
               // Action Buttons Row
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
                 child: Row(
                   children: [
                     TextButton.icon(
@@ -2428,24 +2721,44 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                               property: property,
                               favouriteIds: const {},
                               onToggleFavourite: (_) {},
+                              firebaseUser: widget.firebaseUser,
+                              onRequireSignIn: widget.onRequireSignIn,
                             ),
                           ),
                         );
                       },
                       icon: const Icon(Icons.visibility_outlined, size: 16),
                       label: const Text('Preview Details'),
-                      style: TextButton.styleFrom(foregroundColor: AppColors.green),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.green,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _openLandlordRequestsSheet(propertyFilter: property),
+                      icon: Badge(
+                        isLabelVisible: pendingCount > 0,
+                        label: Text('$pendingCount'),
+                        child: const Icon(Icons.inbox_outlined, size: 16),
+                      ),
+                      label: Text('Requests (${propRequests.length})'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: pendingCount > 0 ? AppColors.darkGreen : AppColors.textDark,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
                     ),
                     const Spacer(),
                     IconButton(
                       tooltip: 'Edit listing details',
                       icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.darkGreen),
                       onPressed: () => _showEditListingDialog(item),
+                      visualDensity: VisualDensity.compact,
                     ),
                     IconButton(
                       tooltip: 'Delete listing',
                       icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.heart),
                       onPressed: () => _confirmDeleteListing(item),
+                      visualDensity: VisualDensity.compact,
                     ),
                   ],
                 ),
@@ -2464,8 +2777,15 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       text: property.depositAmount != null ? '${property.depositAmount}' : '',
     );
     final descController = TextEditingController(text: property.description);
+    final phoneController = TextEditingController();
+    final whatsappController = TextEditingController();
+    final emailController = TextEditingController();
+    final otherTitleController = TextEditingController();
+    final otherLinkController = TextEditingController();
     String selectedAvailability = property.availability;
+    final List<WizardPhotoItem> editPhotos = List.from(item.photos);
     bool isSaving = false;
+    bool hasLoadedContact = false;
 
     showDialog<void>(
       context: context,
@@ -2473,6 +2793,21 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            if (!hasLoadedContact && widget.firebaseUser != null && !item.isDemo) {
+              hasLoadedContact = true;
+              FirestoreService.instance.getPropertyContactInfo(item.id).then((contact) {
+                if (contact != null && dialogContext.mounted) {
+                  setDialogState(() {
+                    phoneController.text = contact.phone ?? '';
+                    whatsappController.text = contact.whatsapp ?? '';
+                    emailController.text = contact.email ?? '';
+                    otherTitleController.text = contact.otherTitle ?? '';
+                    otherLinkController.text = contact.otherLink ?? '';
+                  });
+                }
+              }).catchError((_) {});
+            }
+
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
@@ -2494,7 +2829,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Update key details for this listing. Status and ownership remain protected.',
+                      'Update key details for this listing. Saving changes will submit the listing for moderation review before appearing live.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
                     ),
                     const SizedBox(height: 16),
@@ -2552,6 +2887,258 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    const Divider(color: AppColors.border),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Direct Contact Info (Private - Shared on Acceptance)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.darkGreen,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact Phone',
+                        prefixIcon: Icon(Icons.phone_outlined, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: whatsappController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'WhatsApp Number',
+                        prefixIcon: Icon(Icons.chat_bubble_outline, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact Email',
+                        prefixIcon: Icon(Icons.email_outlined, color: AppColors.green),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: TextField(
+                            controller: otherTitleController,
+                            decoration: const InputDecoration(
+                              labelText: 'Label',
+                              prefixIcon: Icon(Icons.label_outline, color: AppColors.green),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 6,
+                          child: TextField(
+                            controller: otherLinkController,
+                            keyboardType: TextInputType.url,
+                            decoration: const InputDecoration(
+                              labelText: 'Link / URL',
+                              prefixIcon: Icon(Icons.link_outlined, color: AppColors.green),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(color: AppColors.border),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Property Photos (${editPhotos.length}/8)',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkGreen,
+                          ),
+                        ),
+                        if (editPhotos.length < 8)
+                          TextButton.icon(
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    try {
+                                      final picked = await _picker.pickMultiImage();
+                                      if (picked.isEmpty) return;
+                                      for (final file in picked) {
+                                        if (editPhotos.length >= 8) break;
+                                        final bytes = await file.readAsBytes();
+                                        final validationError = CloudinaryService.validateImageBytes(bytes, fileName: file.name);
+                                        if (validationError != null) {
+                                          if (dialogContext.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('${file.name}: $validationError')),
+                                            );
+                                          }
+                                          continue;
+                                        }
+                                        final isFirst = editPhotos.isEmpty;
+                                        setDialogState(() {
+                                          editPhotos.add(
+                                            WizardPhotoItem(
+                                              id: 'local-${DateTime.now().microsecondsSinceEpoch}-${editPhotos.length}',
+                                              label: 'Room Photo ${editPhotos.length + 1}',
+                                              bytes: bytes,
+                                              isCover: isFirst,
+                                            ),
+                                          );
+                                        });
+                                      }
+                                    } catch (e) {
+                                      if (dialogContext.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Could not load images: $e')),
+                                        );
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(Icons.add_photo_alternate, size: 18),
+                            label: const Text('Add Photos'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (editPhotos.isEmpty)
+                      const Text(
+                        'No photos attached. Click "Add Photos" to upload.',
+                        style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                      )
+                    else
+                      SizedBox(
+                        height: 90,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: editPhotos.length,
+                          separatorBuilder: (context, index) => const SizedBox(width: 8),
+                          itemBuilder: (context, idx) {
+                            final p = editPhotos[idx];
+                            return Stack(
+                              children: [
+                                Container(
+                                  width: 90,
+                                  height: 90,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: p.isCover ? AppColors.green : AppColors.border,
+                                      width: p.isCover ? 2.5 : 1,
+                                    ),
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: p.isMemory
+                                      ? Image.memory(p.bytes!, fit: BoxFit.cover)
+                                      : (p.isNetwork
+                                          ? Image.network(
+                                              p.networkUrl!,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) => Container(
+                                                color: AppColors.lightGreen,
+                                                child: const Icon(Icons.broken_image, color: AppColors.green),
+                                              ),
+                                            )
+                                          : Container(
+                                              color: AppColors.lightGreen,
+                                              child: const Icon(Icons.home, color: AppColors.green),
+                                            )),
+                                ),
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Colors.black.withAlpha(160),
+                                    child: IconButton(
+                                      padding: EdgeInsets.zero,
+                                      iconSize: 14,
+                                      icon: const Icon(Icons.close, color: Colors.white),
+                                      onPressed: isSaving
+                                          ? null
+                                          : () {
+                                              setDialogState(() {
+                                                final removed = editPhotos.removeAt(idx);
+                                                if (removed.isCover && editPhotos.isNotEmpty) {
+                                                  editPhotos.first.isCover = true;
+                                                }
+                                              });
+                                            },
+                                    ),
+                                  ),
+                                ),
+                                if (p.isCover)
+                                  Positioned(
+                                    bottom: 4,
+                                    left: 4,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.green,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text(
+                                        'Cover',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Positioned(
+                                    bottom: 4,
+                                    left: 4,
+                                    child: InkWell(
+                                      onTap: isSaving
+                                          ? null
+                                          : () {
+                                              setDialogState(() {
+                                                for (var i = 0; i < editPhotos.length; i++) {
+                                                  editPhotos[i].isCover = (i == idx);
+                                                }
+                                              });
+                                            },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withAlpha(140),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          'Set Cover',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -2564,6 +3151,27 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                   onPressed: isSaving
                       ? null
                       : () async {
+                          final phoneErr = LandlordContactInfo.validateOptionalPhone(phoneController.text);
+                          if (phoneErr != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(phoneErr)));
+                            return;
+                          }
+                          final waErr = LandlordContactInfo.validateOptionalPhone(whatsappController.text);
+                          if (waErr != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('WhatsApp: $waErr')));
+                            return;
+                          }
+                          final emailErr = LandlordContactInfo.validateOptionalEmail(emailController.text);
+                          if (emailErr != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(emailErr)));
+                            return;
+                          }
+                          final linkErr = LandlordContactInfo.validateOptionalLink(otherLinkController.text);
+                          if (linkErr != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(linkErr)));
+                            return;
+                          }
+
                           final newRent =
                               int.tryParse(rentController.text.trim()) ?? property.rentPerMonth;
                           final newDeposit = int.tryParse(depositController.text.trim());
@@ -2583,28 +3191,97 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                             isSaving = true;
                           });
 
+                          List<Map<String, dynamic>> updatedPhotos = [];
+                          CloudinaryPhotosUploadResult? uploadResult;
                           try {
+                            final hasNewUploads = editPhotos.any((p) => p.bytes != null);
+                            final photosCountChanged = editPhotos.length != item.photos.length;
+                            final coverChanged = editPhotos.any((ep) {
+                              final original = item.photos.where((ip) => ip.id == ep.id).firstOrNull;
+                              return original != null && original.isCover != ep.isCover;
+                            });
+
+                            if (hasNewUploads || photosCountChanged || coverChanged) {
+                              uploadResult = await FirestoreService.instance.uploadPropertyPhotos(
+                                ownerId: widget.firebaseUser!.uid,
+                                propertyId: item.id,
+                                photos: editPhotos,
+                              );
+                              updatedPhotos = uploadResult.photos;
+                            }
+
+                            final updates = <String, dynamic>{
+                              'rentPerMonth': newRent,
+                              'depositAmount': newDeposit,
+                              'availability': selectedAvailability,
+                              'availableNow': selectedAvailability.toLowerCase().contains('now'),
+                              'description': newDesc.isNotEmpty ? newDesc : property.description,
+                            };
+                            if (updatedPhotos.isNotEmpty || (editPhotos.isEmpty && item.photos.isNotEmpty)) {
+                              updates['photos'] = updatedPhotos;
+                            }
+
                             await FirestoreService.instance.updateProperty(
                               propertyId: item.id,
                               ownerId: widget.firebaseUser!.uid,
-                              updates: {
-                                'rentPerMonth': newRent,
-                                'depositAmount': newDeposit,
-                                'availability': selectedAvailability,
-                                'availableNow': selectedAvailability.toLowerCase().contains('now'),
-                                'description': newDesc.isNotEmpty ? newDesc : property.description,
-                              },
+                              updates: updates,
                             );
+
+                            // Clean up removed photos from Storage if they had storage paths
+                            final removedPaths = item.photos
+                                .where((p) => p.storagePath != null && !editPhotos.any((ep) => ep.storagePath == p.storagePath))
+                                .map((p) => p.storagePath!)
+                                .toList();
+                            for (final p in removedPaths) {
+                              FirestoreService.instance.deleteStorageFile(p);
+                            }
+
+                            // Update local item
+                            if (updatedPhotos.isNotEmpty || editPhotos.isEmpty) {
+                              item.photos.clear();
+                              for (var i = 0; i < updatedPhotos.length; i++) {
+                                item.photos.add(
+                                  WizardPhotoItem(
+                                    id: 'photo-$i',
+                                    label: updatedPhotos[i]['label'] as String? ?? 'Photo ${i + 1}',
+                                    networkUrl: updatedPhotos[i]['imageUrl'] as String?,
+                                    storagePath: updatedPhotos[i]['storagePath'] as String?,
+                                    isCover: updatedPhotos[i]['isCover'] as bool? ?? (i == 0),
+                                  ),
+                                );
+                              }
+                            }
+
+                            final updatedContact = LandlordContactInfo(
+                              phone: phoneController.text.trim().isNotEmpty ? phoneController.text.trim() : null,
+                              whatsapp: whatsappController.text.trim().isNotEmpty ? whatsappController.text.trim() : null,
+                              email: emailController.text.trim().isNotEmpty ? emailController.text.trim() : null,
+                              otherTitle: otherTitleController.text.trim().isNotEmpty ? otherTitleController.text.trim() : null,
+                              otherLink: otherLinkController.text.trim().isNotEmpty ? otherLinkController.text.trim() : null,
+                            );
+                            await FirestoreService.instance.setPropertyContactInfo(
+                              propertyId: item.id,
+                              ownerId: widget.firebaseUser!.uid,
+                              contactInfo: updatedContact,
+                            );
+
                             if (dialogContext.mounted) {
                               Navigator.of(dialogContext).pop();
                             }
                             scaffoldMessenger.showSnackBar(
                               const SnackBar(
-                                content: Text('Listing updated successfully in Cloud Firestore.'),
+                                content: Text('Listing updated and submitted for moderation review.'),
                                 backgroundColor: AppColors.green,
                               ),
                             );
                           } catch (e) {
+                            if (uploadResult != null && uploadResult.deleteTokens.isNotEmpty) {
+                              try {
+                                await FirestoreService.instance.deletePhotosByTokens(uploadResult.deleteTokens);
+                              } catch (cleanupErr) {
+                                debugPrint('Error cleaning up photos after property update failure: $cleanupErr');
+                              }
+                            }
                             setDialogState(() {
                               isSaving = false;
                             });
@@ -2630,7 +3307,16 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
           },
         );
       },
-    );
+    ).then((_) {
+      rentController.dispose();
+      depositController.dispose();
+      descController.dispose();
+      phoneController.dispose();
+      whatsappController.dispose();
+      emailController.dispose();
+      otherTitleController.dispose();
+      otherLinkController.dispose();
+    });
   }
 
   void _confirmDeleteListing(SubmittedListing item) {
@@ -2640,10 +3326,8 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text('Delete Listing?'),
-          content: Text(
-            item.isDemo
-                ? 'Are you sure you want to remove this demo listing?'
-                : 'Are you sure you want to permanently delete this listing from Cloud Firestore? This action cannot be undone.',
+          content: const Text(
+            'Are you sure you want to permanently delete this listing? This action cannot be undone.',
           ),
           actions: [
             TextButton(
@@ -2760,6 +3444,629 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppColors.green, width: 2),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Landlord Requests Bottom Sheet
+// ---------------------------------------------------------------------------
+
+class LandlordRequestsSheet extends StatefulWidget {
+  final Property? propertyFilter;
+  final String currentUserId;
+  final List<RentalRequest> initialRequests;
+
+  const LandlordRequestsSheet({
+    super.key,
+    this.propertyFilter,
+    required this.currentUserId,
+    this.initialRequests = const [],
+  });
+
+  @override
+  State<LandlordRequestsSheet> createState() => _LandlordRequestsSheetState();
+}
+
+class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
+  String? _updatingRequestId;
+  late Stream<List<RentalRequest>> _requestsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestsStream = _getRequestsStream();
+  }
+
+  @override
+  void didUpdateWidget(LandlordRequestsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentUserId != widget.currentUserId ||
+        oldWidget.propertyFilter?.id != widget.propertyFilter?.id) {
+      _requestsStream = _getRequestsStream();
+    }
+  }
+
+  static String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final month = months[dt.month - 1];
+    return '${dt.day} $month ${dt.year}';
+  }
+
+  Stream<List<RentalRequest>> _getRequestsStream() {
+    if (widget.propertyFilter != null) {
+      return FirestoreService.instance.streamPropertyRequests(
+        propertyId: widget.propertyFilter!.id,
+        ownerId: widget.currentUserId,
+      );
+    }
+    return FirestoreService.instance.streamLandlordRequests(widget.currentUserId);
+  }
+
+  Widget _buildStatusBadge(RentalRequest req) {
+    Color bg;
+    Color fg;
+    IconData icon;
+    String label;
+
+    if (req.isAccepted) {
+      bg = const Color(0xFFE3F4EA);
+      fg = const Color(0xFF0E5E3B);
+      icon = Icons.check_circle_outline;
+      label = 'Accepted';
+    } else if (req.isRejected) {
+      bg = const Color(0xFFFFE3E3);
+      fg = const Color(0xFFC53030);
+      icon = Icons.highlight_off_outlined;
+      label = 'Declined';
+    } else if (req.isCancelled) {
+      bg = Colors.grey.shade200;
+      fg = AppColors.textMuted;
+      icon = Icons.cancel_outlined;
+      label = 'Withdrawn';
+    } else {
+      bg = AppColors.amberLight;
+      fg = AppColors.amber;
+      icon = Icons.hourglass_top_outlined;
+      label = 'Pending Review';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleDecision({
+    required RentalRequest request,
+    required bool isAccept,
+  }) async {
+    if (request.isDemo) {
+      showFriendlyMessage(context, 'Demo requests cannot be modified in Cloud Firestore.');
+      return;
+    }
+
+    // Ownership guard: landlord can only respond to requests for properties they own
+    if (request.ownerId != null && request.ownerId != widget.currentUserId) {
+      showFriendlyMessage(context, 'You cannot respond to requests for properties you do not own.');
+      return;
+    }
+
+    if (!request.isPending) {
+      showFriendlyMessage(context, 'This rental request has already been reviewed.');
+      return;
+    }
+
+    final noteController = TextEditingController();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(
+                isAccept ? Icons.check_circle_outline : Icons.highlight_off_outlined,
+                color: isAccept ? AppColors.green : AppColors.heart,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isAccept ? 'Accept Rental Request' : 'Decline Rental Request',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isAccept
+                      ? 'Accept rental request from ${request.renterName} for "${request.property.title}"?'
+                      : 'Decline rental request from ${request.renterName} for "${request.property.title}"?',
+                  style: const TextStyle(fontSize: 14, color: AppColors.textDark),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: noteController,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: 'Optional note for tenant',
+                    hintText: isAccept
+                        ? 'e.g. Please call me to confirm move-in timing.'
+                        : 'e.g. Property already rented to another applicant.',
+                    hintStyle: const TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: isAccept ? AppColors.green : AppColors.heart,
+              ),
+              child: Text(isAccept ? 'Accept Request' : 'Decline Request'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _updatingRequestId = request.id;
+    });
+
+    try {
+      final note = noteController.text.trim().isEmpty ? null : noteController.text.trim();
+      await FirestoreService.instance.respondToRentalRequest(
+        requestId: request.id,
+        ownerId: widget.currentUserId,
+        status: isAccept ? 'accepted' : 'rejected',
+        landlordNote: note,
+      );
+
+      if (mounted) {
+        showFriendlyMessage(
+          context,
+          isAccept
+              ? 'Request accepted for ${request.renterName}.'
+              : 'Request declined.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showFriendlyMessage(context, 'Failed to update request: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingRequestId = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: AppColors.lightGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.inbox_rounded, color: AppColors.green, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.propertyFilter != null
+                          ? 'Requests for Property'
+                          : 'Incoming Rental Requests',
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      widget.propertyFilter != null
+                          ? widget.propertyFilter!.title
+                          : 'Review inquiries from interested tenants',
+                      style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Stream Content
+          Expanded(
+            child: StreamBuilder<List<RentalRequest>>(
+              stream: _requestsStream,
+              initialData: widget.initialRequests,
+              builder: (context, snapshot) {
+                final requests = snapshot.data ?? widget.initialRequests;
+
+                if (requests.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: const BoxDecoration(
+                              color: AppColors.lightGreen,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.inbox_outlined,
+                              size: 44,
+                              color: AppColors.green,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'No rental requests yet',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            widget.propertyFilter != null
+                                ? 'When tenants request to rent "${widget.propertyFilter!.title}", their contact info and details will appear here.'
+                                : 'When tenants request to rent any of your properties, their contact info and preferred move-in dates will appear here.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  itemCount: requests.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final req = requests[index];
+                    final isBusy = _updatingRequestId == req.id;
+
+                    return Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Top Property & Status row
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      req.property.title,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.textDark,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${req.property.area} • ${formatTaka(req.property.rentPerMonth)} / mo',
+                                      style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              _buildStatusBadge(req),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          const Divider(height: 1, thickness: 1, color: AppColors.border),
+                          const SizedBox(height: 10),
+
+                          // Tenant Info Details
+                          Row(
+                            children: [
+                              const Icon(Icons.person_outline, size: 16, color: AppColors.green),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  req.renterName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textDark,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_outlined, size: 16, color: AppColors.green),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  req.renterPhone,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textDark,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (req.tenantEmail != null && req.tenantEmail!.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.email_outlined, size: 16, color: AppColors.green),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    req.tenantEmail!,
+                                    style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.green),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Preferred Move-in: ${req.preferredMoveIn}',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.darkGreen,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          // Optional Message from Tenant
+                          if (req.message.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Message from tenant:',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textMuted),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '"${req.message}"',
+                                    style: const TextStyle(fontSize: 12.5, fontStyle: FontStyle.italic, color: AppColors.textDark),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          // Landlord Note if already responded
+                          if (req.landlordNote != null && req.landlordNote!.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: req.isAccepted
+                                    ? const Color(0xFFE3F4EA).withAlpha(160)
+                                    : const Color(0xFFFFE3E3).withAlpha(160),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: req.isAccepted
+                                      ? const Color(0xFF0E5E3B).withAlpha(60)
+                                      : const Color(0xFFC53030).withAlpha(60),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    req.isAccepted ? Icons.check_circle_outline : Icons.info_outline,
+                                    size: 16,
+                                    color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Your response note: "${req.landlordNote}"',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontStyle: FontStyle.italic,
+                                        color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 12),
+
+                          // Bottom Row: Date & Actions
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Submitted ${_formatDate(req.requestedAt)}',
+                                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                              ),
+                              if (req.isPending && !isBusy) ...[
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: () => _handleDecision(request: req, isAccept: false),
+                                      icon: const Icon(Icons.close, size: 14),
+                                      label: const Text('Decline'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.heart,
+                                        side: const BorderSide(color: AppColors.heart),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    FilledButton.icon(
+                                      onPressed: () => _handleDecision(request: req, isAccept: true),
+                                      icon: const Icon(Icons.check, size: 14),
+                                      label: const Text('Accept'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppColors.green,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else if (isBusy) ...[
+                                const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.green),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text('Updating...', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                                  ],
+                                ),
+                              ] else ...[
+                                Text(
+                                  req.isAccepted
+                                      ? 'Accepted'
+                                      : req.isRejected
+                                          ? 'Declined'
+                                          : 'Withdrawn by Tenant',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: req.isAccepted
+                                        ? const Color(0xFF0E5E3B)
+                                        : req.isRejected
+                                            ? const Color(0xFFC53030)
+                                            : AppColors.textMuted,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
