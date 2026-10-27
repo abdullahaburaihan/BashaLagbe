@@ -1,13 +1,14 @@
 {
-    "name": "basha_lagbe",
-    "short_name": "basha_lagbe",
+    "name": "BashaLagbe - বাসা লাগবে",
+    "short_name": "BashaLagbe",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F7F4EC",
+    "theme_color": "#244B3B",
+    "description": "Find verified rental apartments, bachelor rooms, and shared homes across Bangladesh without broker fees.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "categories": ["lifestyle", "utilities"],
     "icons": [
         {
             "src": "icons/Icon-192.png",

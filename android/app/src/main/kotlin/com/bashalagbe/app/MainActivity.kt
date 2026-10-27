@@ -1,5 +1,6 @@
-package com.example.basha_lagbe
+package com.bashalagbe.app
 
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity : FlutterActivity()
+

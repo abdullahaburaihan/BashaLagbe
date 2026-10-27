@@ -2,11 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
 import 'package:basha_lagbe/services/cloudinary_service.dart';
+import 'package:basha_lagbe/services/chat_models.dart';
+export 'package:basha_lagbe/services/chat_models.dart';
 
 /// Centralized Cloud Firestore Service for BashaLagbe.
 ///
@@ -26,6 +29,10 @@ class FirestoreService {
   static const String rentalRequestsCollection = 'rental_requests';
   static const String contactInfoSubcollection = 'contact_info';
   static const String defaultContactDocId = 'details';
+  static const String adminsCollection = 'admins';
+  static const String conversationsCollection = 'conversations';
+  static const String messagesSubcollection = 'messages';
+  static const String mediaCleanupCollection = 'media_cleanup_tasks';
 
   /// Returns true if Firebase has been initialized in this runtime environment.
   bool get isFirebaseAvailable {
@@ -142,6 +149,20 @@ class FirestoreService {
     }, SetOptions(merge: true));
   }
 
+  /// Deletes the user profile and favourites document at `/users/{userId}`.
+  Future<void> deleteUserProfile(String userId) async {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) {
+      return;
+    }
+    try {
+      await firestore.collection(usersCollection).doc(cleanUid).delete();
+    } catch (e) {
+      debugPrint('FirestoreService.deleteUserProfile error: $e');
+      rethrow;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Property Listings (Stage 3)
   // ---------------------------------------------------------------------------
@@ -251,6 +272,128 @@ class FirestoreService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Admin Verification & Moderation (Phase 1)
+  // ---------------------------------------------------------------------------
+
+  /// Checks if the given [userId] is registered in `/admins/{userId}`.
+  Future<bool> checkIsAdmin(String userId) async {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) return false;
+    try {
+      final doc = await firestore.collection(adminsCollection).doc(cleanUid).get();
+      return doc.exists;
+    } catch (e) {
+      debugPrint('FirestoreService.checkIsAdmin error: $e');
+      return false;
+    }
+  }
+
+  /// Real-time stream of whether [userId] is an authorized administrator.
+  Stream<bool> streamIsAdmin(String userId) {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) {
+      return Stream.value(false);
+    }
+    try {
+      return firestore
+          .collection(adminsCollection)
+          .doc(cleanUid)
+          .snapshots()
+          .map((snapshot) => snapshot.exists)
+          .handleError((e) {
+            debugPrint('FirestoreService.streamIsAdmin error: $e');
+            return false;
+          });
+    } catch (e) {
+      debugPrint('FirestoreService.streamIsAdmin catch: $e');
+      return Stream.value(false);
+    }
+  }
+
+  /// Real-time stream of all pending listings across all owners for admin moderation.
+  Stream<List<Property>> streamPendingProperties() {
+    if (!isFirebaseAvailable) {
+      return const Stream.empty();
+    }
+    try {
+      return firestore
+          .collection(propertiesCollection)
+          .where('status', isEqualTo: 'pending')
+          .snapshots()
+          .map((snapshot) {
+        final list = <Property>[];
+        for (final doc in snapshot.docs) {
+          try {
+            list.add(propertyFromFirestore(doc.id, doc.data()));
+          } catch (e) {
+            debugPrint('Failed to parse pending property doc ${doc.id}: $e');
+          }
+        }
+        return list;
+      });
+    } catch (e) {
+      debugPrint('FirestoreService.streamPendingProperties error: $e');
+      return const Stream.empty();
+    }
+  }
+
+  /// Approves a property listing as an authorized administrator.
+  ///
+  /// Strictly touches only `status`, `moderationNote`, and `updatedAt`.
+  Future<void> approvePropertyAsAdmin({required String propertyId}) async {
+    final cleanPropId = propertyId.trim();
+    if (!isFirebaseAvailable || cleanPropId.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Invalid property ID for approval.',
+      );
+    }
+    await firestore.collection(propertiesCollection).doc(cleanPropId).update({
+      'status': 'approved',
+      'moderationNote': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Rejects a property listing as an authorized administrator with a moderation note.
+  ///
+  /// Strictly touches only `status`, `moderationNote`, and `updatedAt`.
+  Future<void> rejectPropertyAsAdmin({
+    required String propertyId,
+    required String moderationNote,
+  }) async {
+    final cleanPropId = propertyId.trim();
+    final cleanNote = moderationNote.trim();
+    if (!isFirebaseAvailable || cleanPropId.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Invalid property ID for rejection.',
+      );
+    }
+    if (cleanNote.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'A moderation note is required when rejecting a listing.',
+      );
+    }
+    if (cleanNote.length > 500) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Moderation note cannot exceed 500 characters.',
+      );
+    }
+    await firestore.collection(propertiesCollection).doc(cleanPropId).update({
+      'status': 'rejected',
+      'moderationNote': cleanNote,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Updates permitted user-editable fields of a property listing owned by the user.
   ///
   /// Enforces re-moderation: any content edit automatically reverts status to 'pending'
@@ -311,10 +454,61 @@ class FirestoreService {
     await firestore.collection(propertiesCollection).doc(cleanPropId).update(sanitized);
   }
 
-  /// Deletes a property listing from Firestore.
+  /// Queues one or more Cloudinary public IDs for permanent server-side deletion.
+  ///
+  /// Writes to `/media_cleanup_tasks/{taskId}` with metadata ensuring only assets
+  /// associated with the intended owner and property can be removed.
+  Future<List<String>> queueMediaCleanup({
+    required String ownerId,
+    required String propertyId,
+    required List<String> publicIds,
+    required String reason,
+  }) async {
+    final cleanUid = ownerId.trim();
+    final cleanPropId = propertyId.trim();
+    final cleanReason = reason.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty || cleanPropId.isEmpty || publicIds.isEmpty) {
+      return const [];
+    }
+
+    final queuedTaskIds = <String>[];
+    final batch = firestore.batch();
+
+    for (final rawId in publicIds) {
+      final cleanPublicId = rawId.trim();
+      if (cleanPublicId.isEmpty) continue;
+
+      final docRef = firestore.collection(mediaCleanupCollection).doc();
+      queuedTaskIds.add(docRef.id);
+
+      batch.set(docRef, {
+        'publicId': cleanPublicId,
+        'propertyId': cleanPropId,
+        'ownerId': cleanUid,
+        'status': 'pending',
+        'retryCount': 0,
+        'reason': cleanReason,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (queuedTaskIds.isNotEmpty) {
+      await batch.commit();
+    }
+    return queuedTaskIds;
+  }
+
+  /// Deletes a property listing durably and ensures associated photos are safely queued for cleanup.
+  ///
+  /// Orchestrates deletion via the server-side `deletePropertyListing` Cloud Function
+  /// which atomically records durable cleanup tasks before deleting the listing.
+  /// Falls back to an atomic client batch write if Cloud Functions is unavailable.
   Future<void> deleteProperty({
     required String propertyId,
     required String ownerId,
+    List<String>? photoStoragePaths,
+    FirebaseFunctions? customFunctions,
   }) async {
     final cleanUid = ownerId.trim();
     final cleanPropId = propertyId.trim();
@@ -326,6 +520,29 @@ class FirestoreService {
       );
     }
 
+    // 1. Try server-orchestrated durable deletion via Cloud Functions
+    bool serverDeletionSucceeded = false;
+    if (Firebase.apps.isNotEmpty) {
+      try {
+        final functions = customFunctions ?? FirebaseFunctions.instance;
+        final callable = functions.httpsCallable('deletePropertyListing');
+        await callable.call<Map<dynamic, dynamic>>({
+          'propertyId': cleanPropId,
+        });
+        serverDeletionSucceeded = true;
+      } catch (e) {
+        debugPrint('deleteProperty server callable notice: $e (using direct atomic batch fallback)');
+      }
+    }
+
+    if (serverDeletionSucceeded) {
+      return;
+    }
+
+    // 2. Direct atomic batch fallback: commits document deletion and media cleanup tasks atomically
+    final batch = firestore.batch();
+
+    // Delete contact info subcollection document if present
     try {
       await firestore
           .collection(propertiesCollection)
@@ -335,7 +552,30 @@ class FirestoreService {
           .delete();
     } catch (_) {}
 
-    await firestore.collection(propertiesCollection).doc(cleanPropId).delete();
+    // Delete main property document
+    final propDocRef = firestore.collection(propertiesCollection).doc(cleanPropId);
+    batch.delete(propDocRef);
+
+    // Queue associated photos in the same atomic batch
+    if (photoStoragePaths != null && photoStoragePaths.isNotEmpty) {
+      for (final rawId in photoStoragePaths) {
+        final cleanPublicId = rawId.trim();
+        if (cleanPublicId.isEmpty) continue;
+        final cleanupDocRef = firestore.collection(mediaCleanupCollection).doc();
+        batch.set(cleanupDocRef, {
+          'publicId': cleanPublicId,
+          'propertyId': cleanPropId,
+          'ownerId': cleanUid,
+          'status': 'pending',
+          'retryCount': 0,
+          'reason': 'property_deleted',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    await batch.commit();
   }
 
   // ---------------------------------------------------------------------------
@@ -1048,6 +1288,18 @@ class FirestoreService {
       return error.message ?? 'Network request timed out. Please check your internet connection.';
     }
     if (error is FirebaseException) {
+      if (error.plugin == 'cloud_functions') {
+        switch (error.code) {
+          case 'unauthenticated':
+            return 'You must be signed in to upload property photos.';
+          case 'failed-precondition':
+            return 'Upload signature credentials are not configured on the server. Please contact administrator.';
+          case 'not-found':
+            return 'Upload signature service is not deployed. Please verify Cloud Functions.';
+          default:
+            return error.message ?? 'An error occurred during signed upload authorization.';
+        }
+      }
       switch (error.code) {
         case 'permission-denied':
           return 'Access denied. You do not have permission to access or modify this data.';
@@ -1080,6 +1332,233 @@ class FirestoreService {
       return 'Access denied. You do not have permission to access or modify this data.';
     }
     return str;
+  }
+
+  // ---------------------------------------------------------------------------
+  // In-App Chat & Messaging (Phase 3)
+  // ---------------------------------------------------------------------------
+
+  /// Initiates or retrieves an existing conversation document for an accepted rental request.
+  Future<String> getOrCreateConversation({
+    required String propertyId,
+    required String propertyTitle,
+    required String ownerId,
+    required String tenantId,
+    required String tenantName,
+  }) async {
+    final cleanPropId = propertyId.trim();
+    final cleanOwnerId = ownerId.trim();
+    final cleanTenantId = tenantId.trim();
+    final cleanTitle = propertyTitle.trim();
+    final cleanTenantName = tenantName.trim();
+
+    if (!isFirebaseAvailable || cleanPropId.isEmpty || cleanOwnerId.isEmpty || cleanTenantId.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Invalid arguments for creating conversation.',
+      );
+    }
+
+    final convId = '${cleanPropId}_$cleanTenantId';
+    final docRef = firestore.collection(conversationsCollection).doc(convId);
+
+    try {
+      final snap = await docRef.get();
+      if (!snap.exists) {
+        await docRef.set({
+          'requestId': convId,
+          'propertyId': cleanPropId,
+          'propertyTitle': cleanTitle.isNotEmpty ? cleanTitle : 'Rental Property',
+          'ownerId': cleanOwnerId,
+          'tenantId': cleanTenantId,
+          'tenantName': cleanTenantName.isNotEmpty ? cleanTenantName : 'Tenant',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      return convId;
+    } catch (e) {
+      debugPrint('FirestoreService.getOrCreateConversation error: $e');
+      rethrow;
+    }
+  }
+
+  /// Real-time stream of all conversations where the user is either tenant or landlord.
+  Stream<List<Conversation>> streamUserConversations(String userId) {
+    final cleanUid = userId.trim();
+    if (!isFirebaseAvailable || cleanUid.isEmpty) {
+      return const Stream.empty();
+    }
+
+    final controller = StreamController<List<Conversation>>.broadcast();
+    final tenantMap = <String, Conversation>{};
+    final ownerMap = <String, Conversation>{};
+    bool hasEmittedError = false;
+
+    void emitMerged() {
+      if (controller.isClosed) return;
+      hasEmittedError = false;
+      final merged = <String, Conversation>{...tenantMap, ...ownerMap};
+      final list = merged.values.toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      controller.add(list);
+    }
+
+    void forwardError(Object error, [StackTrace? stackTrace]) {
+      if (!controller.isClosed && controller.hasListener && !hasEmittedError) {
+        hasEmittedError = true;
+        controller.addError(error, stackTrace);
+      }
+    }
+
+    StreamSubscription? subTenant;
+    StreamSubscription? subOwner;
+
+    controller.onListen = () {
+      hasEmittedError = false;
+      try {
+        subTenant = firestore
+            .collection(conversationsCollection)
+            .where('tenantId', isEqualTo: cleanUid)
+            .snapshots()
+            .listen((snapshot) {
+          tenantMap.clear();
+          for (final doc in snapshot.docs) {
+            try {
+              tenantMap[doc.id] = Conversation.fromFirestore(doc.id, doc.data());
+            } catch (e) {
+              debugPrint('Failed to parse conversation doc ${doc.id}: $e');
+            }
+          }
+          emitMerged();
+        }, onError: (e, st) {
+          debugPrint('streamUserConversations tenant query error: $e');
+          forwardError(e, st);
+        });
+
+        subOwner = firestore
+            .collection(conversationsCollection)
+            .where('ownerId', isEqualTo: cleanUid)
+            .snapshots()
+            .listen((snapshot) {
+          ownerMap.clear();
+          for (final doc in snapshot.docs) {
+            try {
+              ownerMap[doc.id] = Conversation.fromFirestore(doc.id, doc.data());
+            } catch (e) {
+              debugPrint('Failed to parse conversation doc ${doc.id}: $e');
+            }
+          }
+          emitMerged();
+        }, onError: (e, st) {
+          debugPrint('streamUserConversations owner query error: $e');
+          forwardError(e, st);
+        });
+      } catch (e, st) {
+        debugPrint('streamUserConversations initialization catch: $e');
+        forwardError(e, st);
+      }
+    };
+
+    controller.onCancel = () {
+      subTenant?.cancel();
+      subOwner?.cancel();
+    };
+
+    return controller.stream;
+  }
+
+  /// Real-time stream of messages in a conversation, ordered chronologically.
+  Stream<List<ChatMessage>> streamMessages(String conversationId) {
+    final cleanConvId = conversationId.trim();
+    if (!isFirebaseAvailable || cleanConvId.isEmpty) {
+      return const Stream.empty();
+    }
+    try {
+      return firestore
+          .collection(conversationsCollection)
+          .doc(cleanConvId)
+          .collection(messagesSubcollection)
+          .orderBy('createdAt', descending: false)
+          .snapshots()
+          .map((snapshot) {
+        final list = <ChatMessage>[];
+        for (final doc in snapshot.docs) {
+          try {
+            list.add(ChatMessage.fromFirestore(doc.id, doc.data()));
+          } catch (e) {
+            debugPrint('Failed to parse chat message doc ${doc.id}: $e');
+          }
+        }
+        return list;
+      });
+    } catch (e) {
+      debugPrint('FirestoreService.streamMessages error: $e');
+      return const Stream.empty();
+    }
+  }
+
+  /// Sends a new message in [conversationId] and updates conversation metadata.
+  Future<void> sendMessage({
+    required String conversationId,
+    required String senderId,
+    required String text,
+  }) async {
+    final cleanConvId = conversationId.trim();
+    final cleanSenderId = senderId.trim();
+    final cleanText = text.trim();
+
+    if (!isFirebaseAvailable || cleanConvId.isEmpty || cleanSenderId.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Must be authenticated with valid conversation to send messages.',
+      );
+    }
+
+    if (cleanText.isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Message cannot be empty.',
+      );
+    }
+
+    if (cleanText.length > 2000) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'invalid-argument',
+        message: 'Message cannot exceed 2000 characters.',
+      );
+    }
+
+    final messageRef = firestore
+        .collection(conversationsCollection)
+        .doc(cleanConvId)
+        .collection(messagesSubcollection)
+        .doc();
+
+    final batch = firestore.batch();
+
+    // 1. Add message doc
+    batch.set(messageRef, {
+      'conversationId': cleanConvId,
+      'senderId': cleanSenderId,
+      'text': cleanText,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // 2. Update conversation preview metadata
+    final convRef = firestore.collection(conversationsCollection).doc(cleanConvId);
+    batch.update(convRef, {
+      'lastMessageText': cleanText,
+      'lastMessageSenderId': cleanSenderId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
   }
 }
 

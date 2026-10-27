@@ -319,21 +319,21 @@ class _AuthSheetState extends State<AuthSheet> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color: AppColors.errorSurface,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.red.shade200),
+                    border: Border.all(color: AppColors.error.withAlpha(80)),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                      const Icon(Icons.error_outline, size: 18, color: AppColors.error),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 12.5,
-                            color: Colors.red.shade900,
+                            color: AppColors.error,
                             fontWeight: FontWeight.w500,
                           ),
                         ),

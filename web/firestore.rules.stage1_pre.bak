@@ -1,0 +1,275 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------------
+    // Helper Functions
+    // -------------------------------------------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isPositiveWholeNumber(val) {
+      return val is number && val > 0 && (val is int || int(val) == val);
+    }
+
+    // -------------------------------------------------------------------------
+    // 1. Users & Favourites
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+                            && !('role' in request.resource.data)
+                            && !('isAdmin' in request.resource.data)
+                            && !('roles' in request.resource.data)
+                            && !('isSuperuser' in request.resource.data)
+                            && request.resource.data.keys().hasOnly([
+                                 'displayName', 'name', 'email', 'phone',
+                                 'photoUrl', 'favouritePropertyIds',
+                                 'createdAt', 'updatedAt'
+                               ]);
+      allow delete: if isOwner(userId);
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Property Listings
+    // -------------------------------------------------------------------------
+    match /properties/{propertyId} {
+      allow read: if resource.data.status == 'approved'
+                  || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
+
+      allow create: if isAuthenticated()
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.get('moderationNote', null) == null
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.area is string
+                    && request.resource.data.area.size() > 0
+                    && request.resource.data.propertyType is string
+                    && request.resource.data.division is string
+                    && isPositiveWholeNumber(request.resource.data.rentPerMonth)
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.keys().hasOnly([
+                         'ownerId', 'ownerEmail', 'status', 'moderationNote',
+                         'createdAt', 'updatedAt', 'title', 'description',
+                         'propertyType', 'division', 'area', 'fullAddress',
+                         'landmark', 'rentPerMonth', 'depositAmount', 'sizeSqFt',
+                         'floorLevel', 'bedrooms', 'bathrooms', 'balconies',
+                         'facilities', 'availability', 'availableNow',
+                         'preferredTenant', 'utilityNotice', 'nearbyHighlights',
+                         'photos'
+                       ]);
+
+      allow update: if isOwner(resource.data.ownerId)
+                    && request.resource.data.ownerId == resource.data.ownerId
+                    && request.resource.data.status == resource.data.status
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && resource.data.get('moderationNote', null) == request.resource.data.get('moderationNote', null)
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'title', 'description', 'propertyType', 'division', 'area',
+                         'fullAddress', 'landmark', 'rentPerMonth', 'depositAmount',
+                         'sizeSqFt', 'floorLevel', 'bedrooms', 'bathrooms', 'balconies',
+                         'facilities', 'availability', 'availableNow', 'preferredTenant',
+                         'utilityNotice', 'nearbyHighlights', 'photos', 'updatedAt'
+                       ])
+                    && isPositiveWholeNumber(request.resource.data.rentPerMonth);
+
+      allow delete: if isOwner(resource.data.ownerId);
+
+      // -----------------------------------------------------------------------
+      // Subcollection: Landlord Contact Info
+      // Strictly isolated from public property document to protect private contact methods.
+      // Accessible only by the owner or an authenticated tenant with an 'accepted' request.
+      // -----------------------------------------------------------------------
+      match /contact_info/{docId} {
+        allow read: if isAuthenticated() && (
+          (resource != null && resource.data.ownerId == request.auth.uid)
+          ||
+          (
+            exists(/databases/$(database)/documents/rental_requests/$(propertyId + '_' + request.auth.uid))
+            && get(/databases/$(database)/documents/rental_requests/$(propertyId + '_' + request.auth.uid)).data.status == 'accepted'
+          )
+          ||
+          (
+            resource == null
+            && exists(/databases/$(database)/documents/properties/$(propertyId))
+            && get(/databases/$(database)/documents/properties/$(propertyId)).data.ownerId == request.auth.uid
+          )
+        );
+
+        allow create: if isAuthenticated()
+                      && request.resource.data.ownerId == request.auth.uid
+                      && request.resource.data.propertyId == propertyId
+                      && exists(/databases/$(database)/documents/properties/$(propertyId))
+                      && get(/databases/$(database)/documents/properties/$(propertyId)).data.ownerId == request.auth.uid
+                      && request.resource.data.createdAt == request.time
+                      && request.resource.data.updatedAt == request.time
+                      && request.resource.data.keys().hasOnly([
+                           'ownerId', 'propertyId', 'phone', 'whatsapp', 'email',
+                           'otherTitle', 'otherLink', 'createdAt', 'updatedAt'
+                         ])
+                      && (request.resource.data.get('phone', null) == null || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+                      && (request.resource.data.get('whatsapp', null) == null || (request.resource.data.whatsapp is string && request.resource.data.whatsapp.size() <= 30))
+                      && (request.resource.data.get('email', null) == null || (request.resource.data.email is string && request.resource.data.email.size() <= 100))
+                      && (request.resource.data.get('otherTitle', null) == null || (request.resource.data.otherTitle is string && request.resource.data.otherTitle.size() <= 50))
+                      && (request.resource.data.get('otherLink', null) == null || (request.resource.data.otherLink is string && request.resource.data.otherLink.size() <= 300));
+
+        allow update: if isAuthenticated()
+                      && resource.data.ownerId == request.auth.uid
+                      && request.resource.data.ownerId == resource.data.ownerId
+                      && request.resource.data.propertyId == propertyId
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.updatedAt == request.time
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                           'phone', 'whatsapp', 'email', 'otherTitle', 'otherLink', 'updatedAt'
+                         ])
+                      && (request.resource.data.get('phone', null) == null || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+                      && (request.resource.data.get('whatsapp', null) == null || (request.resource.data.whatsapp is string && request.resource.data.whatsapp.size() <= 30))
+                      && (request.resource.data.get('email', null) == null || (request.resource.data.email is string && request.resource.data.email.size() <= 100))
+                      && (request.resource.data.get('otherTitle', null) == null || (request.resource.data.otherTitle is string && request.resource.data.otherTitle.size() <= 50))
+                      && (request.resource.data.get('otherLink', null) == null || (request.resource.data.otherLink is string && request.resource.data.otherLink.size() <= 300));
+
+        allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Rental Requests
+    // -------------------------------------------------------------------------
+    match /rental_requests/{requestId} {
+      // 1. Read: Requesting tenant or property owner can read
+      // Safe null check prevents runtime evaluation error during transaction read-before-write or active checks
+      allow read: if isAuthenticated() && (
+        (resource != null && (
+          resource.data.tenantId == request.auth.uid ||
+          resource.data.ownerId == request.auth.uid
+        ))
+        ||
+        (resource == null && requestId.matches('^.+_' + request.auth.uid + '$'))
+      );
+
+      // 2. Create: Authenticated tenant submits initial 'pending' request
+      allow create: if isAuthenticated()
+                    && request.resource.data.tenantId == request.auth.uid
+                    && request.resource.data.ownerId is string
+                    && request.resource.data.ownerId.size() > 0
+                    && request.resource.data.tenantId != request.resource.data.ownerId
+                    && request.resource.data.propertyId is string
+                    && request.resource.data.propertyId.size() > 0
+                    && requestId == request.resource.data.propertyId + '_' + request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.tenantName is string
+                    && request.resource.data.tenantName.size() > 0
+                    && request.resource.data.tenantPhone is string
+                    && request.resource.data.tenantPhone.size() > 0
+                    && request.resource.data.preferredMoveIn is string
+                    && request.resource.data.preferredMoveIn.size() > 0
+                    && request.resource.data.tenantEmail is string
+                    && request.resource.data.message is string
+                    && request.resource.data.propertyTitle is string
+                    && request.resource.data.propertyTitle.size() > 0
+                    && request.resource.data.propertyArea is string
+                    && request.resource.data.propertyArea.size() > 0
+                    && isPositiveWholeNumber(request.resource.data.rentPerMonth)
+                    && (request.resource.data.get('propertyPhotoUrl', null) == null || request.resource.data.propertyPhotoUrl is string)
+                    && request.resource.data.get('landlordNote', null) == null
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.keys().hasOnly([
+                         'propertyId', 'ownerId', 'tenantId', 'tenantEmail',
+                         'tenantName', 'tenantPhone', 'preferredMoveIn', 'message',
+                         'propertyTitle', 'propertyArea', 'rentPerMonth', 'propertyPhotoUrl',
+                         'status', 'landlordNote', 'createdAt', 'updatedAt'
+                       ])
+                    && exists(/databases/$(database)/documents/properties/$(request.resource.data.propertyId))
+                    && get(/databases/$(database)/documents/properties/$(request.resource.data.propertyId)).data.status == 'approved'
+                    && get(/databases/$(database)/documents/properties/$(request.resource.data.propertyId)).data.ownerId == request.resource.data.ownerId;
+
+      // 3. Update: Strict role-based branching
+      allow update: if isAuthenticated() && (
+        // Branch A: Landlord Decision (Accept or Reject)
+        (
+          resource.data.ownerId == request.auth.uid
+          && resource.data.status == 'pending'
+          && (request.resource.data.status == 'accepted' || request.resource.data.status == 'rejected')
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.propertyId == resource.data.propertyId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'status', 'landlordNote', 'updatedAt'
+             ])
+          && (
+               request.resource.data.get('landlordNote', null) == null ||
+               request.resource.data.landlordNote is string
+             )
+        )
+        ||
+        // Branch B: Tenant Cancellation (Withdrawal)
+        (
+          resource.data.tenantId == request.auth.uid
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.propertyId == resource.data.propertyId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'status', 'updatedAt'
+             ])
+          && request.resource.data.get('landlordNote', null) == resource.data.get('landlordNote', null)
+        )
+        ||
+        // Branch C: Tenant Reapplication
+        (
+          resource.data.tenantId == request.auth.uid
+          && (resource.data.status == 'cancelled' || resource.data.status == 'rejected')
+          && request.resource.data.status == 'pending'
+          && request.resource.data.ownerId == resource.data.ownerId
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.propertyId == resource.data.propertyId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.get('landlordNote', null) == null
+          && request.resource.data.tenantName is string && request.resource.data.tenantName.size() > 0
+          && request.resource.data.tenantPhone is string && request.resource.data.tenantPhone.size() > 0
+          && request.resource.data.preferredMoveIn is string && request.resource.data.preferredMoveIn.size() > 0
+          && request.resource.data.tenantEmail is string
+          && request.resource.data.message is string
+          && request.resource.data.propertyTitle is string && request.resource.data.propertyTitle.size() > 0
+          && request.resource.data.propertyArea is string && request.resource.data.propertyArea.size() > 0
+          && isPositiveWholeNumber(request.resource.data.rentPerMonth)
+          && (request.resource.data.get('propertyPhotoUrl', null) == null || request.resource.data.propertyPhotoUrl is string)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'status', 'landlordNote', 'tenantName', 'tenantPhone',
+               'tenantEmail', 'preferredMoveIn', 'message', 'updatedAt',
+               'propertyTitle', 'propertyArea', 'rentPerMonth', 'propertyPhotoUrl'
+             ])
+          && exists(/databases/$(database)/documents/properties/$(resource.data.propertyId))
+          && get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.status == 'approved'
+          && get(/databases/$(database)/documents/properties/$(resource.data.propertyId)).data.ownerId == resource.data.ownerId
+        )
+      );
+
+      // 4. Delete: Denied for all users (preserves audit trail)
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Default Catch-All Deny
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

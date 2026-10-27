@@ -982,14 +982,14 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFF9E6),
+                          color: AppColors.amberLight,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFB7791F).withAlpha(80)),
+                          border: Border.all(color: AppColors.amber.withAlpha(80)),
                         ),
                         child: const Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.lock_clock_rounded, color: Color(0xFFB7791F), size: 22),
+                            Icon(Icons.lock_clock_rounded, color: AppColors.amber, size: 22),
                             SizedBox(width: 10),
                             Expanded(
                               child: Column(
@@ -1000,7 +1000,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                                     style: TextStyle(
                                       fontSize: 13.5,
                                       fontWeight: FontWeight.w700,
-                                      color: Color(0xFF7A4F00),
+                                      color: AppColors.textDark,
                                     ),
                                   ),
                                   SizedBox(height: 3),
@@ -1019,15 +1019,15 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFEAEA),
+                          color: AppColors.errorSurface,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFC53030).withAlpha(80)),
+                          border: Border.all(color: AppColors.error.withAlpha(80)),
                         ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.cancel_outlined, color: Color(0xFFC53030), size: 22),
-                            const SizedBox(width: 10),
+                            const Icon(Icons.cancel_outlined, color: AppColors.error, size: 22),
+                            SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1037,7 +1037,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                                     style: TextStyle(
                                       fontSize: 13.5,
                                       fontWeight: FontWeight.w700,
-                                      color: Color(0xFF8B1E1E),
+                                      color: AppColors.error,
                                     ),
                                   ),
                                   const SizedBox(height: 3),
@@ -1058,9 +1058,9 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF4F9F6),
+                          color: AppColors.background,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.green.withAlpha(70)),
+                          border: Border.all(color: AppColors.border),
                         ),
                         child: const Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1207,7 +1207,7 @@ class _PropertyDetailsScreenState extends State<PropertyDetailsScreen> {
                   backgroundColor: _isOwner
                       ? Colors.grey.shade400
                       : (_tenantRequest?.isAccepted == true
-                          ? const Color(0xFF0E5E3B)
+                          ? AppColors.darkGreen
                           : (_hasActiveCloudRequest || _requestSubmittedLocally
                               ? AppColors.darkGreen
                               : AppColors.green)),
@@ -1889,14 +1889,14 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFE3E3),
+                  color: AppColors.errorSurface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFC53030).withAlpha(120)),
+                  border: Border.all(color: AppColors.error.withAlpha(120)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.error_outline, size: 20, color: Color(0xFFC53030)),
+                    const Icon(Icons.error_outline, size: 20, color: AppColors.error),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1904,7 +1904,7 @@ class _RequestToRentSheetState extends State<RequestToRentSheet> {
                         style: const TextStyle(
                           fontSize: 12.5,
                           height: 1.35,
-                          color: Color(0xFF9B1C1C),
+                          color: AppColors.error,
                           fontWeight: FontWeight.w600,
                         ),
                       ),

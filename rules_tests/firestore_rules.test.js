@@ -15,6 +15,10 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  collection,
+  query,
+  where,
+  getDocs,
 } from 'firebase/firestore';
 
 const PROJECT_ID = 'demo-bashalagbe';
@@ -127,6 +131,23 @@ async function seedAdmin(adminId, data = {}) {
     const db = context.firestore();
     await setDoc(doc(db, 'admins', adminId), {
       assignedAt: Timestamp.now(),
+      ...data,
+    });
+  });
+}
+
+async function seedConversation(conversationId, data = {}) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'conversations', conversationId), {
+      requestId: conversationId,
+      propertyId: 'prop_chat_1',
+      propertyTitle: 'Chat Flat',
+      ownerId: 'landlord_1',
+      tenantId: 'tenant_1',
+      tenantName: 'Tenant One',
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
       ...data,
     });
   });
@@ -824,6 +845,70 @@ describe('Firestore Security Rules: Property Listings (/properties/{propertyId})
     await assertSucceeds(getDoc(doc(db, 'admins', 'admin_bob')));
   });
 
+  it('allows authorized admin in /admins to read another user pending property', async () => {
+    await seedAdmin('admin_bob');
+    await seedProperty('prop_pending_read', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Pending Flat',
+    });
+
+    const dbAdmin = testEnv.authenticatedContext('admin_bob').firestore();
+    await assertSucceeds(getDoc(doc(dbAdmin, 'properties', 'prop_pending_read')));
+  });
+
+  it('allows authorized admin in /admins to query pending properties across all owners', async () => {
+    await seedAdmin('admin_bob');
+    await seedProperty('prop_pending_1', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Pending Flat 1',
+    });
+    await seedProperty('prop_pending_2', {
+      ownerId: 'landlord_2',
+      status: 'pending',
+      title: 'Pending Flat 2',
+    });
+
+    const dbAdmin = testEnv.authenticatedContext('admin_bob').firestore();
+    const q = query(collection(dbAdmin, 'properties'), where('status', '==', 'pending'));
+    await assertSucceeds(getDocs(q));
+  });
+
+  it('denies non-admin from reading another user pending property', async () => {
+    await seedProperty('prop_pending_private', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Pending Private Flat',
+    });
+
+    const dbUser = testEnv.authenticatedContext('other_user').firestore();
+    await assertFails(getDoc(doc(dbUser, 'properties', 'prop_pending_private')));
+  });
+
+  it('denies non-admin from querying pending properties across all owners', async () => {
+    await seedProperty('prop_pending_other', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Pending Flat',
+    });
+
+    const dbUser = testEnv.authenticatedContext('other_user').firestore();
+    const q = query(collection(dbUser, 'properties'), where('status', '==', 'pending'));
+    await assertFails(getDocs(q));
+  });
+
+  it('denies unauthenticated visitor from reading a pending property', async () => {
+    await seedProperty('prop_pending_anon', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Pending Flat Anon',
+    });
+
+    const dbAnon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(dbAnon, 'properties', 'prop_pending_anon')));
+  });
+
   it('denies user from writing or creating an admin document in /admins (privilege escalation prevention)', async () => {
     const db = testEnv.authenticatedContext('user_attacker').firestore();
     await assertFails(
@@ -886,6 +971,18 @@ describe('Firestore Security Rules: Property Listings (/properties/{propertyId})
         updatedAt: serverTimestamp(),
       })
     );
+  });
+
+  it('denies admin from deleting another user property listing', async () => {
+    await seedAdmin('admin_deleter');
+    await seedProperty('prop_admin_delete', {
+      ownerId: 'landlord_1',
+      status: 'pending',
+      title: 'Property Not Deletable By Admin',
+    });
+
+    const dbAdmin = testEnv.authenticatedContext('admin_deleter').firestore();
+    await assertFails(deleteDoc(doc(dbAdmin, 'properties', 'prop_admin_delete')));
   });
 
   it('denies non-admin from approving a pending property', async () => {
@@ -2244,5 +2341,609 @@ describe('Firestore Security Rules: Landlord Contact Info (/properties/{property
     await assertFails(
       deleteDoc(doc(db, 'properties', 'prop_contact_1', 'contact_info', 'details'))
     );
+  });
+
+  // =============================================================================
+  // In-App Chat & Messaging Security Tests (/conversations/{id})
+  // =============================================================================
+  describe('Firestore Security Rules: In-App Chat & Messaging (/conversations/{id})', () => {
+    it('allows tenant to create conversation when rental request is accepted', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertSucceeds(
+        setDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1'), {
+          requestId: 'prop_chat_1_tenant_1',
+          propertyId: 'prop_chat_1',
+          propertyTitle: 'Chat Flat',
+          ownerId: 'landlord_1',
+          tenantId: 'tenant_1',
+          tenantName: 'Tenant One',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('allows landlord to create conversation when rental request is accepted', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      await assertSucceeds(
+        setDoc(doc(dbLandlord, 'conversations', 'prop_chat_1_tenant_1'), {
+          requestId: 'prop_chat_1_tenant_1',
+          propertyId: 'prop_chat_1',
+          propertyTitle: 'Chat Flat',
+          ownerId: 'landlord_1',
+          tenantId: 'tenant_1',
+          tenantName: 'Tenant One',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies conversation creation when rental request is still pending', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_pending', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_pending',
+        status: 'pending',
+      });
+
+      const db = testEnv.authenticatedContext('tenant_pending').firestore();
+      await assertFails(
+        setDoc(doc(db, 'conversations', 'prop_chat_1_tenant_pending'), {
+          requestId: 'prop_chat_1_tenant_pending',
+          propertyId: 'prop_chat_1',
+          propertyTitle: 'Chat Flat',
+          ownerId: 'landlord_1',
+          tenantId: 'tenant_pending',
+          tenantName: 'Tenant Pending',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies conversation creation when rental request was rejected', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_rejected', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_rejected',
+        status: 'rejected',
+      });
+
+      const db = testEnv.authenticatedContext('tenant_rejected').firestore();
+      await assertFails(
+        setDoc(doc(db, 'conversations', 'prop_chat_1_tenant_rejected'), {
+          requestId: 'prop_chat_1_tenant_rejected',
+          propertyId: 'prop_chat_1',
+          propertyTitle: 'Chat Flat',
+          ownerId: 'landlord_1',
+          tenantId: 'tenant_rejected',
+          tenantName: 'Tenant Rejected',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies nonparticipant from creating conversation', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+
+      const dbAttacker = testEnv.authenticatedContext('attacker_user').firestore();
+      await assertFails(
+        setDoc(doc(dbAttacker, 'conversations', 'prop_chat_1_tenant_1'), {
+          requestId: 'prop_chat_1_tenant_1',
+          propertyId: 'prop_chat_1',
+          propertyTitle: 'Chat Flat',
+          ownerId: 'landlord_1',
+          tenantId: 'tenant_1',
+          tenantName: 'Tenant One',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('allows participants to read conversation document', async () => {
+      await seedConversation('prop_chat_1_tenant_1');
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertSucceeds(getDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1')));
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      await assertSucceeds(getDoc(doc(dbLandlord, 'conversations', 'prop_chat_1_tenant_1')));
+    });
+
+    it('denies nonparticipants from reading conversation document', async () => {
+      await seedConversation('prop_chat_1_tenant_1');
+
+      const dbStranger = testEnv.authenticatedContext('stranger_user').firestore();
+      await assertFails(getDoc(doc(dbStranger, 'conversations', 'prop_chat_1_tenant_1')));
+
+      const dbAnon = testEnv.unauthenticatedContext().firestore();
+      await assertFails(getDoc(doc(dbAnon, 'conversations', 'prop_chat_1_tenant_1')));
+    });
+
+    it('allows participants to read non-existent conversation (getDoc) when linked rental request is accepted', async () => {
+      // Rental request is accepted, but conversation document is NOT yet created (simulates getOrCreateConversation)
+      await seedRentalRequest('prop_nonexist_tenant_1', {
+        propertyId: 'prop_nonexist',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      const tenantSnap = await assertSucceeds(getDoc(doc(dbTenant, 'conversations', 'prop_nonexist_tenant_1')));
+      expect(tenantSnap.exists()).toBe(false);
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      const landlordSnap = await assertSucceeds(getDoc(doc(dbLandlord, 'conversations', 'prop_nonexist_tenant_1')));
+      expect(landlordSnap.exists()).toBe(false);
+    });
+
+    it('denies read of non-existent conversation when linked rental request is pending or rejected', async () => {
+      // Case A: Pending rental request
+      await seedRentalRequest('prop_pend_tenant_1', {
+        propertyId: 'prop_pend',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'pending',
+      });
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(getDoc(doc(dbTenant, 'conversations', 'prop_pend_tenant_1')));
+
+      // Case B: Rejected rental request
+      await seedRentalRequest('prop_rej_tenant_1', {
+        propertyId: 'prop_rej',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'rejected',
+      });
+      await assertFails(getDoc(doc(dbTenant, 'conversations', 'prop_rej_tenant_1')));
+    });
+
+    it('denies read of non-existent conversation when linked rental request is missing or by nonparticipant', async () => {
+      // Case A: Missing rental request
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(getDoc(doc(dbTenant, 'conversations', 'completely_missing_req_tenant_1')));
+
+      // Case B: Accepted rental request, but read attempted by unrelated stranger
+      await seedRentalRequest('prop_secret_tenant_1', {
+        propertyId: 'prop_secret',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      const dbStranger = testEnv.authenticatedContext('stranger_intruder').firestore();
+      await assertFails(getDoc(doc(dbStranger, 'conversations', 'prop_secret_tenant_1')));
+
+      // Case C: Unauthenticated user
+      const dbAnon = testEnv.unauthenticatedContext().firestore();
+      await assertFails(getDoc(doc(dbAnon, 'conversations', 'prop_secret_tenant_1')));
+    });
+
+    it('allows participant to send message in authorized conversation', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      await seedConversation('prop_chat_1_tenant_1');
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertSucceeds(
+        setDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_1'), {
+          conversationId: 'prop_chat_1_tenant_1',
+          senderId: 'tenant_1',
+          text: 'Hello landlord, when can I move in?',
+          createdAt: serverTimestamp(),
+        })
+      );
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      await assertSucceeds(
+        setDoc(doc(dbLandlord, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_2'), {
+          conversationId: 'prop_chat_1_tenant_1',
+          senderId: 'landlord_1',
+          text: 'Hello! You are welcome starting 1st of next month.',
+          createdAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies sender from spoofing senderId on message', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      await seedConversation('prop_chat_1_tenant_1');
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(
+        setDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_spoofed'), {
+          conversationId: 'prop_chat_1_tenant_1',
+          senderId: 'landlord_1',
+          text: 'I am the landlord, pay me now.',
+          createdAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies nonparticipant from sending or reading messages', async () => {
+      await seedRentalRequest('prop_chat_1_tenant_1', {
+        propertyId: 'prop_chat_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      await seedConversation('prop_chat_1_tenant_1');
+
+      const dbStranger = testEnv.authenticatedContext('stranger').firestore();
+      await assertFails(
+        setDoc(doc(dbStranger, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_eavesdrop'), {
+          conversationId: 'prop_chat_1_tenant_1',
+          senderId: 'stranger',
+          text: 'Can I intrude?',
+          createdAt: serverTimestamp(),
+        })
+      );
+
+      await assertFails(
+        getDoc(doc(dbStranger, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_1'))
+      );
+    });
+
+    it('denies modifying or deleting sent messages (immutable chat)', async () => {
+      await seedConversation('prop_chat_1_tenant_1');
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await setDoc(doc(db, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_immutable'), {
+          conversationId: 'prop_chat_1_tenant_1',
+          senderId: 'tenant_1',
+          text: 'Original message text',
+          createdAt: Timestamp.now(),
+        });
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(
+        updateDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_immutable'), {
+          text: 'Altered message text',
+        })
+      );
+      await assertFails(
+        deleteDoc(doc(dbTenant, 'conversations', 'prop_chat_1_tenant_1', 'messages', 'msg_immutable'))
+      );
+    });
+
+    it('allows tenant to query conversations with where(tenantId, ==, theirUid)', async () => {
+      await seedConversation('prop_q1_tenant_1', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+      await seedConversation('prop_q2_tenant_1', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_2',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      const q = query(
+        collection(dbTenant, 'conversations'),
+        where('tenantId', '==', 'tenant_1')
+      );
+      await assertSucceeds(getDocs(q));
+    });
+
+    it('allows landlord to query conversations with where(ownerId, ==, theirUid)', async () => {
+      await seedConversation('prop_q1_landlord_1', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+      await seedConversation('prop_q2_landlord_1', {
+        tenantId: 'tenant_2',
+        ownerId: 'landlord_1',
+      });
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      const q = query(
+        collection(dbLandlord, 'conversations'),
+        where('ownerId', '==', 'landlord_1')
+      );
+      await assertSucceeds(getDocs(q));
+    });
+
+    it('denies unrelated user from querying conversations of other tenants or landlords', async () => {
+      await seedConversation('prop_q_private', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+
+      const dbStranger = testEnv.authenticatedContext('stranger_eavesdropper').firestore();
+
+      // Attempt querying another tenant's conversations
+      const qTenant = query(
+        collection(dbStranger, 'conversations'),
+        where('tenantId', '==', 'tenant_1')
+      );
+      await assertFails(getDocs(qTenant));
+
+      // Attempt querying another landlord's conversations
+      const qOwner = query(
+        collection(dbStranger, 'conversations'),
+        where('ownerId', '==', 'landlord_1')
+      );
+      await assertFails(getDocs(qOwner));
+    });
+
+    it('denies unfiltered collection queries on conversations', async () => {
+      await seedConversation('prop_q_unfiltered', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(getDocs(collection(dbTenant, 'conversations')));
+
+      const dbAnon = testEnv.unauthenticatedContext().firestore();
+      await assertFails(getDocs(collection(dbAnon, 'conversations')));
+    });
+
+    it('denies unauthenticated users from querying conversations by tenantId or ownerId', async () => {
+      await seedConversation('prop_q_unauth', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+
+      const dbAnon = testEnv.unauthenticatedContext().firestore();
+      const qTenant = query(
+        collection(dbAnon, 'conversations'),
+        where('tenantId', '==', 'tenant_1')
+      );
+      await assertFails(getDocs(qTenant));
+
+      const qOwner = query(
+        collection(dbAnon, 'conversations'),
+        where('ownerId', '==', 'landlord_1')
+      );
+      await assertFails(getDocs(qOwner));
+    });
+
+    it('allows participant queries even when linked rental request is absent (verifying list does not depend on external get)', async () => {
+      // Conversation exists, but no rental request is seeded in /rental_requests
+      await seedConversation('prop_orphan_conv_tenant_1', {
+        tenantId: 'tenant_1',
+        ownerId: 'landlord_1',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      const qTenant = query(
+        collection(dbTenant, 'conversations'),
+        where('tenantId', '==', 'tenant_1')
+      );
+      await assertSucceeds(getDocs(qTenant));
+
+      const dbLandlord = testEnv.authenticatedContext('landlord_1').firestore();
+      const qOwner = query(
+        collection(dbLandlord, 'conversations'),
+        where('ownerId', '==', 'landlord_1')
+      );
+      await assertSucceeds(getDocs(qOwner));
+    });
+
+    it('allows conversation metadata update while linked rental request is accepted', async () => {
+      await seedRentalRequest('prop_up_1_tenant_1', {
+        propertyId: 'prop_up_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      await seedConversation('prop_up_1_tenant_1', {
+        requestId: 'prop_up_1_tenant_1',
+        propertyId: 'prop_up_1',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertSucceeds(
+        updateDoc(doc(dbTenant, 'conversations', 'prop_up_1_tenant_1'), {
+          lastMessageText: 'See you tomorrow at 4 PM.',
+          lastMessageSenderId: 'tenant_1',
+          lastMessageAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies conversation metadata update after linked rental request is cancelled or rejected', async () => {
+      // 1. Seed as accepted initially
+      await seedRentalRequest('prop_revoked_tenant_1', {
+        propertyId: 'prop_revoked',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+        status: 'accepted',
+      });
+      await seedConversation('prop_revoked_tenant_1', {
+        requestId: 'prop_revoked_tenant_1',
+        propertyId: 'prop_revoked',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+      });
+
+      // 2. Change rental request status to cancelled via testEnv
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await updateDoc(doc(db, 'rental_requests', 'prop_revoked_tenant_1'), {
+          status: 'cancelled',
+        });
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(
+        updateDoc(doc(dbTenant, 'conversations', 'prop_revoked_tenant_1'), {
+          lastMessageText: 'Attempting update after cancellation',
+          lastMessageSenderId: 'tenant_1',
+          lastMessageAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+
+      // 3. Change rental request status to rejected via testEnv
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await updateDoc(doc(db, 'rental_requests', 'prop_revoked_tenant_1'), {
+          status: 'rejected',
+        });
+      });
+
+      await assertFails(
+        updateDoc(doc(dbTenant, 'conversations', 'prop_revoked_tenant_1'), {
+          lastMessageText: 'Attempting update after rejection',
+          lastMessageSenderId: 'tenant_1',
+          lastMessageAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies conversation metadata update when linked rental request document is missing', async () => {
+      await seedConversation('prop_missing_req_tenant_1', {
+        requestId: 'non_existent_rental_req',
+        propertyId: 'prop_missing_req',
+        ownerId: 'landlord_1',
+        tenantId: 'tenant_1',
+      });
+
+      const dbTenant = testEnv.authenticatedContext('tenant_1').firestore();
+      await assertFails(
+        updateDoc(doc(dbTenant, 'conversations', 'prop_missing_req_tenant_1'), {
+          lastMessageText: 'Attempting update without rental request',
+          lastMessageSenderId: 'tenant_1',
+          lastMessageAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+  });
+
+  describe('Media Cleanup Tasks Security Rules (/media_cleanup_tasks/{taskId})', () => {
+    it('allows property owner to create cleanup task for their own property assets', async () => {
+      const dbOwner = testEnv.authenticatedContext('landlord_1').firestore();
+      await assertSucceeds(
+        setDoc(doc(dbOwner, 'media_cleanup_tasks', 'task_owner_valid'), {
+          ownerId: 'landlord_1',
+          propertyId: 'prop_123',
+          publicId: 'properties/landlord_1/prop_123/photo_1',
+          status: 'pending',
+          retryCount: 0,
+          reason: 'photo_removed_during_edit',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies user from creating cleanup task for another owner assets (cross-tenant attack)', async () => {
+      const dbAttacker = testEnv.authenticatedContext('attacker_user').firestore();
+      // Attacker tries to delete landlord_1's photo by submitting their publicId
+      await assertFails(
+        setDoc(doc(dbAttacker, 'media_cleanup_tasks', 'task_attack_cross_tenant'), {
+          ownerId: 'attacker_user',
+          propertyId: 'prop_123',
+          publicId: 'properties/landlord_1/prop_123/photo_1',
+          status: 'pending',
+          retryCount: 0,
+          reason: 'photo_removed_during_edit',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies user from spoofing ownerId field with victim uid', async () => {
+      const dbAttacker = testEnv.authenticatedContext('attacker_user').firestore();
+      // Attacker specifies landlord_1 in ownerId field
+      await assertFails(
+        setDoc(doc(dbAttacker, 'media_cleanup_tasks', 'task_attack_spoof_owner'), {
+          ownerId: 'landlord_1',
+          propertyId: 'prop_123',
+          publicId: 'properties/landlord_1/prop_123/photo_1',
+          status: 'pending',
+          retryCount: 0,
+          reason: 'property_deleted',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+      );
+    });
+
+    it('denies client from updating or deleting media cleanup task', async () => {
+      // Seed a task
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await setDoc(doc(db, 'media_cleanup_tasks', 'task_immutable'), {
+          ownerId: 'landlord_1',
+          propertyId: 'prop_123',
+          publicId: 'properties/landlord_1/prop_123/photo_1',
+          status: 'pending',
+          retryCount: 0,
+          reason: 'property_deleted',
+        });
+      });
+
+      const dbOwner = testEnv.authenticatedContext('landlord_1').firestore();
+      // Attempt to mark completed directly from client
+      await assertFails(
+        updateDoc(doc(dbOwner, 'media_cleanup_tasks', 'task_immutable'), {
+          status: 'completed',
+        })
+      );
+      // Attempt to delete directly from client
+      await assertFails(
+        deleteDoc(doc(dbOwner, 'media_cleanup_tasks', 'task_immutable'))
+      );
+    });
+
+    it('allows owner to read task, denies unrelated stranger', async () => {
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await setDoc(doc(db, 'media_cleanup_tasks', 'task_read_test'), {
+          ownerId: 'landlord_1',
+          propertyId: 'prop_123',
+          publicId: 'properties/landlord_1/prop_123/photo_1',
+          status: 'pending',
+          retryCount: 0,
+          reason: 'property_deleted',
+        });
+      });
+
+      const dbOwner = testEnv.authenticatedContext('landlord_1').firestore();
+      await assertSucceeds(getDoc(doc(dbOwner, 'media_cleanup_tasks', 'task_read_test')));
+
+      const dbStranger = testEnv.authenticatedContext('stranger_user').firestore();
+      await assertFails(getDoc(doc(dbStranger, 'media_cleanup_tasks', 'task_read_test')));
+    });
   });
 });

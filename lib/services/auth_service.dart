@@ -125,10 +125,23 @@ class AuthService {
     }
   }
 
+  /// Permanently deletes the currently authenticated user account.
+  ///
+  /// Throws a [FirebaseAuthException] with code `requires-recent-login` if the
+  /// user has not re-authenticated recently.
+  Future<void> deleteAccount() async {
+    final user = currentUser;
+    if (user != null) {
+      await user.delete();
+    }
+  }
+
   /// Translates [FirebaseAuthException] codes into user-friendly messages.
   static String getFriendlyErrorMessage(Object error) {
     if (error is FirebaseAuthException) {
       switch (error.code) {
+        case 'requires-recent-login':
+          return 'For security, please log out and log back in before deleting your account.';
         case 'user-not-found':
           return 'No account found with this email address. Please register first.';
         case 'wrong-password':

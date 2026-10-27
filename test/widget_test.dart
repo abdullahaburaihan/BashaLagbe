@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
@@ -10,8 +13,12 @@ import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/services/cloudinary_service.dart';
+import 'package:basha_lagbe/admin_dashboard_screen.dart';
+import 'package:basha_lagbe/chat_screen.dart';
+import 'package:basha_lagbe/conversations_screen.dart';
 
 void main() {
+  _registerEditListingTest();
   testWidgets('BashaLagbeApp smoke test and navigation across tabs', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
@@ -1939,6 +1946,438 @@ void main() {
     expect(message, contains('internet connection'));
   });
 
+  test('Cloudinary: uploadImage derives correct filename extension and MIME type for JPEG, PNG, and WebP', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+
+    // 1. JPEG: should enforce .jpg and image/jpeg
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46]);
+    await service.uploadImage(
+      bytes: jpgBytes,
+      fileName: 'living_room',
+      folder: 'properties/u1/p1',
+    );
+    expect(client.capturedRequests.length, 1);
+    final jpgFile = client.lastRequest!.files.first;
+    expect(jpgFile.filename, 'living_room.jpg');
+    expect(jpgFile.contentType.type, 'image');
+    expect(jpgFile.contentType.subtype, 'jpeg');
+    expect(jpgFile.contentType.toString(), 'image/jpeg');
+
+    // 2. PNG: should enforce .png and image/png even if passed .jpg
+    final pngBytes = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    await service.uploadImage(
+      bytes: pngBytes,
+      fileName: 'floor_plan.jpg',
+      folder: 'properties/u1/p1',
+    );
+    expect(client.capturedRequests.length, 2);
+    final pngFile = client.lastRequest!.files.first;
+    expect(pngFile.filename, 'floor_plan.png');
+    expect(pngFile.contentType.type, 'image');
+    expect(pngFile.contentType.subtype, 'png');
+    expect(pngFile.contentType.toString(), 'image/png');
+
+    // 3. WebP: should enforce .webp and image/webp
+    final webpBytes = Uint8List.fromList([
+      0x52, 0x49, 0x46, 0x46, 0x20, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ]);
+    await service.uploadImage(
+      bytes: webpBytes,
+      fileName: 'balcony.webp',
+      folder: 'properties/u1/p1',
+    );
+    expect(client.capturedRequests.length, 3);
+    final webpFile = client.lastRequest!.files.first;
+    expect(webpFile.filename, 'balcony.webp');
+    expect(webpFile.contentType.type, 'image');
+    expect(webpFile.contentType.subtype, 'webp');
+    expect(webpFile.contentType.toString(), 'image/webp');
+  });
+
+  test('Cloudinary: uploadPropertyPhotos creates correct filename extensions for each image format in batch', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+
+    final jpgItem = WizardPhotoItem(
+      id: 'p1',
+      label: 'Photo 1',
+      bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]),
+    );
+    final pngItem = WizardPhotoItem(
+      id: 'p2',
+      label: 'Photo 2',
+      bytes: Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    );
+    final webpItem = WizardPhotoItem(
+      id: 'p3',
+      label: 'Photo 3',
+      bytes: Uint8List.fromList([
+        0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+      ]),
+    );
+
+    final result = await service.uploadPropertyPhotos(
+      ownerId: 'owner_abc',
+      propertyId: 'prop_xyz',
+      photos: [jpgItem, pngItem, webpItem],
+    );
+
+    expect(result.photos.length, 3);
+    expect(client.capturedRequests.length, 3);
+
+    expect(client.capturedRequests[0].files.first.filename, matches(r'^photo_\d+_0\.jpg$'));
+    expect(client.capturedRequests[0].files.first.contentType.toString(), 'image/jpeg');
+
+    expect(client.capturedRequests[1].files.first.filename, matches(r'^photo_\d+_1\.png$'));
+    expect(client.capturedRequests[1].files.first.contentType.toString(), 'image/png');
+
+    expect(client.capturedRequests[2].files.first.filename, matches(r'^photo_\d+_2\.webp$'));
+    expect(client.capturedRequests[2].files.first.contentType.toString(), 'image/webp');
+  });
+
+  test('Cloudinary: invalid and oversized image bytes are rejected before making an HTTP request', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+
+    // 1. Empty bytes
+    expect(
+      () => service.uploadImage(bytes: Uint8List(0), fileName: 'empty.jpg'),
+      throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('empty'))),
+    );
+    expect(client.sendCallCount, 0);
+
+    // 2. Unsupported format bytes
+    final textBytes = Uint8List.fromList('not an image'.codeUnits);
+    expect(
+      () => service.uploadImage(bytes: textBytes, fileName: 'text.jpg'),
+      throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('Unsupported image format'))),
+    );
+    expect(client.sendCallCount, 0);
+
+    // 3. Oversized bytes (> 5 MB)
+    final oversizedBytes = Uint8List(5 * 1024 * 1024 + 1);
+    expect(
+      () => service.uploadImage(bytes: oversizedBytes, fileName: 'huge.jpg'),
+      throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('too large'))),
+    );
+    expect(client.sendCallCount, 0);
+  });
+
+  test('Cloudinary: response validation parses complete metadata correctly', () async {
+    final client = _CapturingHttpClient();
+    client.responseHandler = (request, callIndex) async {
+      final body = jsonEncode({
+        'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/v12345678/properties/living_room.jpg',
+        'public_id': 'properties/living_room',
+        'delete_token': 'test_token_complete',
+        'format': 'jpg',
+        'resource_type': 'image',
+        'bytes': 102400,
+        'width': 1920,
+        'height': 1080,
+      });
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+    final result = await service.uploadImage(
+      bytes: jpgBytes,
+      fileName: 'living_room.jpg',
+      folder: 'properties/u1/p1',
+    );
+
+    expect(result.secureUrl, 'https://res.cloudinary.com/sgbsxxtm/image/upload/v12345678/properties/living_room.jpg');
+    expect(result.publicId, 'properties/living_room');
+    expect(result.deleteToken, 'test_token_complete');
+    expect(result.format, 'jpg');
+    expect(result.resourceType, 'image');
+    expect(result.bytes, 102400);
+    expect(result.width, 1920);
+    expect(result.height, 1080);
+  });
+
+  test('Cloudinary: malformed JSON response throws CloudinaryResponseValidationException', () async {
+    final client = _CapturingHttpClient();
+    client.responseHandler = (request, callIndex) async {
+      return http.StreamedResponse(Stream.value(utf8.encode('<html>502 Bad Gateway</html>')), 200);
+    };
+
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>().having(
+        (e) => e.message,
+        'message',
+        contains('malformed JSON'),
+      )),
+    );
+  });
+
+  test('Cloudinary: missing or non-string secure_url or public_id throws CloudinaryResponseValidationException', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+
+    // Missing secure_url
+    client.responseHandler = (request, callIndex) async {
+      final body = jsonEncode({'public_id': 'properties/sample'});
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>().having(
+        (e) => e.message,
+        'message',
+        contains('Missing or empty secure_url'),
+      )),
+    );
+
+    // Missing public_id
+    client.responseHandler = (request, callIndex) async {
+      final body = jsonEncode({
+        'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/sample.jpg',
+      });
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>().having(
+        (e) => e.message,
+        'message',
+        contains('Missing or empty public_id'),
+      )),
+    );
+  });
+
+  test('Cloudinary: invalid delivery URL host, scheme, or cloud name throws CloudinaryResponseValidationException', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+
+    final testUrls = [
+      'http://res.cloudinary.com/sgbsxxtm/image/upload/sample.jpg', // insecure http
+      'https://attacker.com/sgbsxxtm/image/upload/sample.jpg', // spoofed host
+      'https://res.cloudinary.com.evil.com/sgbsxxtm/image/upload/sample.jpg', // subdomain trick
+      'https://res.cloudinary.com/other_cloud_account/image/upload/sample.jpg', // wrong cloud
+    ];
+
+    for (final invalidUrl in testUrls) {
+      client.responseHandler = (request, callIndex) async {
+        final body = jsonEncode({
+          'secure_url': invalidUrl,
+          'public_id': 'properties/sample',
+        });
+        return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+      };
+
+      expect(
+        () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+        throwsA(isA<CloudinaryResponseValidationException>().having(
+          (e) => e.message,
+          'message',
+          contains('Invalid or unverified delivery URL'),
+        )),
+        reason: 'Should reject invalid URL: $invalidUrl',
+      );
+    }
+  });
+
+  test('Cloudinary: non-image resource_type or unsupported format throws CloudinaryResponseValidationException', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+
+    // Resource type video
+    client.responseHandler = (request, callIndex) async {
+      final body = jsonEncode({
+        'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/sample.mp4',
+        'public_id': 'properties/sample',
+        'resource_type': 'video',
+      });
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>().having(
+        (e) => e.message,
+        'message',
+        contains('only "image" is supported'),
+      )),
+    );
+
+    // Format pdf
+    client.responseHandler = (request, callIndex) async {
+      final body = jsonEncode({
+        'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/sample.pdf',
+        'public_id': 'properties/sample',
+        'resource_type': 'image',
+        'format': 'pdf',
+      });
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>().having(
+        (e) => e.message,
+        'message',
+        contains('Unsupported asset format'),
+      )),
+    );
+  });
+
+  test('Cloudinary: validation failure triggers automatic delete-token rollback', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(client: client);
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+
+    // Return a response that fails validation (wrong resource_type) but includes a delete_token
+    client.responseHandler = (request, callIndex) async {
+      if (request.url.path.contains('delete_by_token')) {
+        return http.StreamedResponse(Stream.value(utf8.encode(jsonEncode({'result': 'ok'}))), 200);
+      }
+      final body = jsonEncode({
+        'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/sample.mp4',
+        'public_id': 'properties/sample',
+        'delete_token': 'rogue_token_cleanup_123',
+        'resource_type': 'video',
+      });
+      return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);
+    };
+
+    await expectLater(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg'),
+      throwsA(isA<CloudinaryResponseValidationException>()),
+    );
+
+    // Verify delete_by_token was called
+    final deleteRequests = client.allRequests.where((r) => r.url.path.contains('delete_by_token')).toList();
+    expect(deleteRequests.length, 1);
+    final deleteReq = deleteRequests.first as http.Request;
+    expect(deleteReq.bodyFields['token'], 'rogue_token_cleanup_123');
+  });
+
+  test('Cloudinary: signed upload sends backend signature, api_key, timestamp, and preset', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(
+      client: client,
+      signatureProvider: ({required propertyId}) async => const CloudinaryUploadSignature(
+        signature: 'hex_backend_sig_12345',
+        timestamp: 1729850000,
+        apiKey: '998877665544332',
+        cloudName: 'sgbsxxtm',
+        folder: 'properties/owner_sec/prop_sec',
+        uploadPreset: 'bashalagbe_signed',
+      ),
+    );
+
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+    await service.uploadImage(
+      bytes: jpgBytes,
+      fileName: 'signed_photo.jpg',
+      propertyId: 'prop_sec',
+    );
+
+    expect(client.capturedRequests.length, 1);
+    final req = client.capturedRequests.first;
+    expect(req.fields['api_key'], '998877665544332');
+    expect(req.fields['timestamp'], '1729850000');
+    expect(req.fields['signature'], 'hex_backend_sig_12345');
+    expect(req.fields['folder'], 'properties/owner_sec/prop_sec');
+    expect(req.fields['upload_preset'], 'bashalagbe_signed');
+  });
+
+  test('FirestoreService: mediaCleanupCollection constant and empty inputs handling', () async {
+    expect(FirestoreService.mediaCleanupCollection, 'media_cleanup_tasks');
+
+    final service = FirestoreService.instance;
+    // Empty inputs should return empty list without throwing
+    expect(await service.queueMediaCleanup(ownerId: '', propertyId: '', publicIds: [], reason: ''), isEmpty);
+    expect(await service.queueMediaCleanup(ownerId: 'u1', propertyId: 'p1', publicIds: [], reason: 'test'), isEmpty);
+  });
+
+  test('Cloudinary: requireSignedUploads throws StateError when signatureProvider is missing', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(
+      client: client,
+      requireSignedUploads: true,
+    );
+
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg', propertyId: 'p_test'),
+      throwsA(isA<StateError>().having(
+        (e) => e.message,
+        'message',
+        contains('Refusing to upload via unsigned preset in production'),
+      )),
+    );
+  });
+
+  test('Cloudinary: uploadImage fails safely with clear error if signatureProvider throws', () async {
+    final client = _CapturingHttpClient();
+    final service = CloudinaryService(
+      client: client,
+      signatureProvider: ({required propertyId}) async {
+        throw Exception('Cloud Functions getCloudinaryUploadSignature returned 404');
+      },
+    );
+
+    final jpgBytes = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0]);
+    expect(
+      () => service.uploadImage(bytes: jpgBytes, fileName: 'room.jpg', propertyId: 'p_test'),
+      throwsA(isA<Exception>().having(
+        (e) => e.toString(),
+        'toString',
+        contains('Failed to obtain signed upload authorization from server'),
+      )),
+    );
+  });
+
+  test('Cloudinary: defaultSignatureProvider throws StateError when Firebase is not initialized', () async {
+    if (Firebase.apps.isEmpty) {
+      expect(
+        () => CloudinaryService.defaultSignatureProvider(propertyId: 'p_uninit'),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('Firebase has not been initialized'),
+        )),
+      );
+    }
+  });
+
+  test('FirestoreService: getFriendlyErrorMessage translates cloud_functions errors', () {
+    final unauth = FirebaseException(
+      plugin: 'cloud_functions',
+      code: 'unauthenticated',
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(unauth),
+      'You must be signed in to upload property photos.',
+    );
+
+    final failedPrecondition = FirebaseException(
+      plugin: 'cloud_functions',
+      code: 'failed-precondition',
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(failedPrecondition),
+      contains('credentials are not configured on the server'),
+    );
+
+    final notFound = FirebaseException(
+      plugin: 'cloud_functions',
+      code: 'not-found',
+    );
+    expect(
+      FirestoreService.getFriendlyErrorMessage(notFound),
+      contains('not deployed'),
+    );
+  });
+
   testWidgets('Storage: PropertyDetailsScreen gracefully falls back to stock gallery for legacy listings with null URLs', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
@@ -2045,6 +2484,777 @@ void main() {
     expect(find.byType(Image), findsNothing);
     expect(find.byIcon(Icons.apartment), findsOneWidget);
   });
+
+  test('Admin: FirestoreService methods handle uninitialized/empty inputs safely', () async {
+    final service = FirestoreService();
+    expect(await service.checkIsAdmin(''), isFalse);
+    expect(await service.checkIsAdmin('non_existent'), isFalse);
+
+    // approvePropertyAsAdmin without initialized firestore
+    expect(
+      () => service.approvePropertyAsAdmin(propertyId: ''),
+      throwsA(isA<FirebaseException>()),
+    );
+
+    // rejectPropertyAsAdmin with empty note
+    expect(
+      () => service.rejectPropertyAsAdmin(propertyId: 'p1', moderationNote: ''),
+      throwsA(isA<FirebaseException>()),
+    );
+
+    // rejectPropertyAsAdmin with note > 500 chars
+    expect(
+      () => service.rejectPropertyAsAdmin(propertyId: 'p1', moderationNote: 'a' * 501),
+      throwsA(isA<FirebaseException>()),
+    );
+  });
+
+  testWidgets('Admin: AdminDashboardScreen denies access when user is not admin', (WidgetTester tester) async {
+    final fakeUser = _TestFakeUser(uid: 'user_regular', email: 'regular@basha.com');
+    final mockService = _TestAdminMockFirestoreService(isAdmin: false);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminDashboardScreen(
+          currentUser: fakeUser,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unauthorized Access'), findsOneWidget);
+    expect(find.text('Access Restricted: Your account (regular@basha.com) does not have administrative moderation privileges.'), findsOneWidget);
+    expect(find.text('Admin Moderation'), findsNothing);
+  });
+
+  testWidgets('Admin: AdminDashboardScreen displays pending listings and approves/rejects for authorized admin', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final fakeAdmin = _TestFakeUser(uid: 'admin_1', email: 'admin@basha.com');
+    const pendingProp = Property(
+      id: 'prop_pending_test',
+      title: 'Pending Mirpur Apartment',
+      area: 'Mirpur-10',
+      landmark: 'Near Roundabout',
+      rentPerMonth: 22000,
+      type: PropertyType.family,
+      bedrooms: 2,
+      bathrooms: 2,
+      availability: 'Available next month',
+      availableNow: false,
+      icon: Icons.apartment,
+      gradientStart: Colors.teal,
+      gradientEnd: Colors.blueGrey,
+      ownerId: 'landlord_mirpur',
+      facilities: ['Lift', 'Generator'],
+    );
+
+    final mockService = _TestAdminMockFirestoreService(
+      isAdmin: true,
+      pendingList: [pendingProp],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminDashboardScreen(
+          currentUser: fakeAdmin,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify admin moderation screen title and listing info
+    expect(find.text('Admin Moderation'), findsOneWidget);
+    expect(find.text('Pending Mirpur Apartment'), findsOneWidget);
+    expect(find.text('৳22000/mo'), findsOneWidget);
+    expect(find.text('PENDING'), findsOneWidget);
+    expect(find.text('Owner: landlord_m…'), findsOneWidget);
+
+    // Tap Approve -> opens dialog -> confirm
+    await tester.tap(find.widgetWithText(FilledButton, 'Approve'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Approve Property Listing?'), findsOneWidget);
+    await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.widgetWithText(FilledButton, 'Approve')));
+    await tester.pumpAndSettle();
+
+    expect(mockService.approvedPropertyIds, contains('prop_pending_test'));
+
+    // Tap Reject -> opens dialog -> validation fails if empty -> enter note -> confirm
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reject Property Listing'), findsOneWidget);
+    // Tap Reject Listing button without note -> validation error
+    await tester.tap(find.widgetWithText(FilledButton, 'Reject Listing'));
+    await tester.pumpAndSettle();
+    expect(find.text('A moderation note is required.'), findsOneWidget);
+
+    // Enter note
+    await tester.enterText(find.byType(TextFormField), 'Please provide clearer room photos.');
+    await tester.tap(find.widgetWithText(FilledButton, 'Reject Listing'));
+    await tester.pumpAndSettle();
+
+    expect(mockService.rejectedProperties.length, 1);
+    expect(mockService.rejectedProperties.first['id'], 'prop_pending_test');
+    expect(mockService.rejectedProperties.first['note'], 'Please provide clearer room photos.');
+  });
+
+  testWidgets('Profile: Admin Dashboard entry is hidden for unauthenticated user and non-admin', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    const testProfile = UserProfile(
+      name: 'Regular Renter',
+      email: 'regular@basha.com',
+      phone: '01700000000',
+    );
+    final regularUser = _TestFakeUser(uid: 'regular_user_1', email: 'regular@basha.com');
+    final mockService = _TestAdminMockFirestoreService(isAdmin: false);
+
+    // 1. Unauthenticated guest
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 0,
+            savedCount: 0,
+            rentalRequests: const [],
+            firebaseUser: null,
+            firestoreService: mockService,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Admin Dashboard'), findsNothing);
+
+    // 2. Authenticated non-admin
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 0,
+            savedCount: 0,
+            rentalRequests: const [],
+            firebaseUser: regularUser,
+            firestoreService: mockService,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Admin Dashboard'), findsNothing);
+  });
+
+  testWidgets('Profile: Admin Dashboard entry is visible for verified admin and navigates to AdminDashboardScreen', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    const testProfile = UserProfile(
+      name: 'Admin User',
+      email: 'admin@basha.com',
+      phone: '01800000000',
+    );
+    final adminUser = _TestFakeUser(uid: 'admin_user_99', email: 'admin@basha.com');
+    final mockService = _TestAdminMockFirestoreService(isAdmin: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 0,
+            savedCount: 0,
+            rentalRequests: const [],
+            firebaseUser: adminUser,
+            firestoreService: mockService,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify Admin Dashboard entry is visible
+    final adminTile = find.text('Admin Dashboard');
+    expect(adminTile, findsOneWidget);
+    expect(find.text('Review and moderate pending property submissions'), findsOneWidget);
+
+    // Tap Admin Dashboard -> navigates to AdminDashboardScreen
+    await tester.tap(adminTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Admin Moderation'), findsOneWidget);
+    expect(find.text('All Caught Up!'), findsOneWidget);
+  });
+
+  testWidgets('Admin: AdminDashboardScreen denies access when admin status cannot be verified (stream error)', (WidgetTester tester) async {
+    final fakeUser = _TestFakeUser(uid: 'user_err', email: 'err@basha.com');
+    final mockService = _TestAdminMockFirestoreService(shouldError: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminDashboardScreen(
+          currentUser: fakeUser,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unauthorized Access'), findsOneWidget);
+    expect(find.text('Unable to verify administrative privileges at this time. Please check your network connection or contact support.'), findsOneWidget);
+    expect(find.text('Admin Moderation'), findsNothing);
+  });
+
+  test('Chat: models Conversation and ChatMessage serialization and getters work properly', () {
+    final now = DateTime(2026, 10, 24, 12, 0);
+    final conv = Conversation(
+      id: 'prop_1_tenant_1',
+      requestId: 'prop_1_tenant_1',
+      propertyId: 'prop_1',
+      propertyTitle: 'Lakeview Flat',
+      ownerId: 'landlord_1',
+      tenantId: 'tenant_1',
+      tenantName: 'Farhan',
+      lastMessageText: 'Hello Landlord',
+      lastMessageSenderId: 'tenant_1',
+      lastMessageAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    expect(conv.getOtherParticipantRole('landlord_1'), 'Tenant (Farhan)');
+    expect(conv.getOtherParticipantRole('tenant_1'), 'Landlord');
+
+    final map = conv.toMap();
+    expect(map['propertyTitle'], 'Lakeview Flat');
+    expect(map['tenantName'], 'Farhan');
+
+    final parsed = Conversation.fromFirestore('prop_1_tenant_1', map);
+    expect(parsed.propertyTitle, 'Lakeview Flat');
+    expect(parsed.ownerId, 'landlord_1');
+    expect(parsed.tenantId, 'tenant_1');
+
+    final msg = ChatMessage(
+      id: 'msg_1',
+      conversationId: 'prop_1_tenant_1',
+      senderId: 'tenant_1',
+      text: 'Is this available for immediate move-in?',
+      createdAt: now,
+    );
+
+    final msgMap = msg.toMap();
+    expect(msgMap['text'], 'Is this available for immediate move-in?');
+    final parsedMsg = ChatMessage.fromFirestore('msg_1', msgMap);
+    expect(parsedMsg.text, msg.text);
+    expect(parsedMsg.senderId, 'tenant_1');
+  });
+
+  test('Chat: FirestoreService chat methods validate uninitialized/empty inputs safely', () async {
+    final service = FirestoreService();
+
+    expect(
+      () => service.getOrCreateConversation(
+        propertyId: '',
+        propertyTitle: 'Title',
+        ownerId: 'o1',
+        tenantId: 't1',
+        tenantName: 'Name',
+      ),
+      throwsA(isA<FirebaseException>()),
+    );
+
+    expect(
+      () => service.sendMessage(
+        conversationId: '',
+        senderId: 's1',
+        text: 'Hello',
+      ),
+      throwsA(isA<FirebaseException>()),
+    );
+
+    expect(
+      () => service.sendMessage(
+        conversationId: 'c1',
+        senderId: 's1',
+        text: '',
+      ),
+      throwsA(isA<FirebaseException>()),
+    );
+
+    expect(
+      () => service.sendMessage(
+        conversationId: 'c1',
+        senderId: 's1',
+        text: 'a' * 2001,
+      ),
+      throwsA(isA<FirebaseException>()),
+    );
+  });
+
+  testWidgets('Chat: ChatScreen displays messages, sends new messages, and prevents empty messages', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final now = DateTime(2026, 10, 24, 14, 30);
+    final conv = Conversation(
+      id: 'prop_1_tenant_1',
+      requestId: 'prop_1_tenant_1',
+      propertyId: 'prop_1',
+      propertyTitle: 'Lakeview Flat',
+      ownerId: 'landlord_1',
+      tenantId: 'tenant_1',
+      tenantName: 'Farhan',
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final existingMsg = ChatMessage(
+      id: 'msg_1',
+      conversationId: 'prop_1_tenant_1',
+      senderId: 'landlord_1',
+      text: 'Welcome! When would you like to visit?',
+      createdAt: now,
+    );
+
+    final fakeUser = _TestFakeUser(uid: 'tenant_1', email: 'tenant@basha.com');
+    final mockService = _TestChatMockFirestoreService(
+      messages: [existingMsg],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatScreen(
+          conversation: conv,
+          currentUser: fakeUser,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify app bar title and subtitle
+    expect(find.text('Lakeview Flat'), findsOneWidget);
+    expect(find.text('Landlord'), findsOneWidget);
+
+    // Verify existing message
+    expect(find.text('Welcome! When would you like to visit?'), findsOneWidget);
+
+    // Tap send button without text -> should not send
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+    expect(mockService.sentMessages, isEmpty);
+
+    // Type a message and tap send
+    await tester.enterText(find.byType(TextField), 'Tomorrow around 4 PM works best.');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(mockService.sentMessages.length, 1);
+    expect(mockService.sentMessages.first['conversationId'], 'prop_1_tenant_1');
+    expect(mockService.sentMessages.first['senderId'], 'tenant_1');
+    expect(mockService.sentMessages.first['text'], 'Tomorrow around 4 PM works best.');
+  });
+
+  testWidgets('Chat: ConversationsScreen displays conversations list and navigates to ChatScreen', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final now = DateTime(2026, 10, 24, 15, 0);
+    final conv = Conversation(
+      id: 'prop_1_tenant_1',
+      requestId: 'prop_1_tenant_1',
+      propertyId: 'prop_1',
+      propertyTitle: 'Lakeview Flat',
+      ownerId: 'landlord_1',
+      tenantId: 'tenant_1',
+      tenantName: 'Farhan',
+      lastMessageText: 'See you tomorrow!',
+      lastMessageSenderId: 'landlord_1',
+      lastMessageAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final fakeUser = _TestFakeUser(uid: 'tenant_1', email: 'tenant@basha.com');
+    final mockService = _TestChatMockFirestoreService(
+      conversations: [conv],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ConversationsScreen(
+          currentUser: fakeUser,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify conversation card
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.text('Lakeview Flat'), findsOneWidget);
+    expect(find.text('Landlord'), findsOneWidget);
+    expect(find.text('See you tomorrow!'), findsOneWidget);
+
+    // Tap conversation card -> opens ChatScreen
+    await tester.tap(find.text('Lakeview Flat'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChatScreen), findsOneWidget);
+  });
+
+  testWidgets('Chat: ConversationsScreen displays error message when conversations stream fails', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final fakeUser = _TestFakeUser(uid: 'tenant_1', email: 'tenant@basha.com');
+    final mockService = _TestChatMockFirestoreService(
+      streamError: 'permission-denied: Missing or insufficient permissions.',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ConversationsScreen(
+          currentUser: fakeUser,
+          firestoreService: mockService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Messages'), findsOneWidget);
+    expect(find.textContaining('permission-denied'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('Profile layout: ProfileScreen renders without overflow on narrow viewport (320px) and wide viewport (1200px)', (WidgetTester tester) async {
+    const testProfile = UserProfile(
+      name: 'Test User',
+      email: 'test@example.com',
+      phone: '+8801700000000',
+    );
+
+    // Narrow viewport (320x640)
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 2,
+            savedCount: 5,
+            rentalRequests: const [],
+            firebaseUser: null,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify key widgets exist and no exceptions were thrown
+    expect(find.text('My Profile'), findsOneWidget);
+    expect(find.text('Welcome to BashaLagbe'), findsOneWidget);
+    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Create Account'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Wide viewport (1200x800)
+    tester.view.physicalSize = const Size(1200, 800);
+    await tester.pumpAndSettle();
+
+    expect(find.text('My Profile'), findsOneWidget);
+    expect(find.text('Sign In'), findsOneWidget);
+    expect(find.text('Create Account'), findsOneWidget);
+    final exWide = tester.takeException();
+    if (exWide != null) {
+      // ignore: avoid_print
+      print('CAUGHT EXCEPTION: $exWide');
+    }
+    expect(exWide, isNull);
+  });
+
+  testWidgets('Profile layout: Modals (HelpSupportSheet, AboutBashaLagbeSheet, PrivacyTermsSheet) render without overflow on narrow screen (320px)', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    // 1. HelpSupportSheet
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: HelpSupportSheet(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Help & Support'), findsOneWidget);
+    final ex1 = tester.takeException();
+    if (ex1 != null) {
+      // ignore: avoid_print
+      print('CAUGHT EXCEPTION: $ex1');
+    }
+    expect(ex1, isNull);
+
+    // 2. AboutBashaLagbeSheet
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AboutBashaLagbeSheet(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('BashaLagbe'), findsOneWidget);
+    expect(find.text('Version 1.0.0'), findsOneWidget);
+    final ex2 = tester.takeException();
+    if (ex2 != null) {
+      // ignore: avoid_print
+      print('CAUGHT EXCEPTION: $ex2');
+    }
+    expect(ex2, isNull);
+
+    // 3. PrivacyTermsSheet
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: PrivacyTermsSheet(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Privacy Policy & Terms'), findsOneWidget);
+    final ex3 = tester.takeException();
+    if (ex3 != null) {
+      // ignore: avoid_print
+      print('CAUGHT EXCEPTION: $ex3');
+    }
+    expect(ex3, isNull);
+  });
+
+  testWidgets('Profile layout: Activity tiles with badges render without ListTile assertion or RenderFlex overflow', (WidgetTester tester) async {
+    const testProfile = UserProfile(
+      name: 'Test User',
+      email: 'test@example.com',
+      phone: '+8801700000000',
+    );
+
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 99,
+            savedCount: 50,
+            rentalRequests: const [],
+            firebaseUser: null,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('My Listings'), findsOneWidget);
+    expect(find.text('99 listings'), findsOneWidget);
+    expect(find.text('Saved Properties'), findsOneWidget);
+    expect(find.text('50 saved'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Profile layout: Signed in user profile actions adapt responsively without RenderFlex overflow', (WidgetTester tester) async {
+    const testProfile = UserProfile(
+      name: 'Test User',
+      email: 'test@example.com',
+      phone: '+8801700000000',
+    );
+
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final fakeUser = _TestFakeUser(
+      uid: 'user_narrow_test',
+      email: 'user.narrow@example.com',
+      displayName: 'Responsive User Name',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 1,
+            savedCount: 0,
+            rentalRequests: const [],
+            firebaseUser: fakeUser,
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Responsive User Name'), findsOneWidget);
+    expect(find.text('Edit Profile'), findsOneWidget);
+    expect(find.text('Sign Out'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+class _TestChatMockFirestoreService extends FirestoreService {
+  _TestChatMockFirestoreService({
+    this.messages = const [],
+    this.conversations = const [],
+    this.streamError,
+  });
+
+  final List<ChatMessage> messages;
+  final List<Conversation> conversations;
+  final Object? streamError;
+  final List<Map<String, String>> sentMessages = [];
+
+  @override
+  Stream<List<ChatMessage>> streamMessages(String conversationId) {
+    if (streamError != null) return Stream.error(streamError!);
+    return Stream.value(messages);
+  }
+
+  @override
+  Stream<List<Conversation>> streamUserConversations(String userId) {
+    if (streamError != null) return Stream.error(streamError!);
+    return Stream.value(conversations);
+  }
+
+  @override
+  Future<void> sendMessage({
+    required String conversationId,
+    required String senderId,
+    required String text,
+  }) async {
+    sentMessages.add({
+      'conversationId': conversationId,
+      'senderId': senderId,
+      'text': text,
+    });
+  }
+}
+
+class _TestAdminMockFirestoreService extends FirestoreService {
+  _TestAdminMockFirestoreService({
+    this.isAdmin = false,
+    this.shouldError = false,
+    this.pendingList = const [],
+  });
+
+  final bool isAdmin;
+  final bool shouldError;
+  final List<Property> pendingList;
+  final List<String> approvedPropertyIds = [];
+  final List<Map<String, String>> rejectedProperties = [];
+
+  @override
+  Stream<bool> streamIsAdmin(String userId) {
+    if (shouldError) {
+      return Stream.error(Exception('Firestore stream error'));
+    }
+    return Stream.value(isAdmin);
+  }
+
+  @override
+  Stream<List<Property>> streamPendingProperties() {
+    return Stream.value(pendingList);
+  }
+
+  @override
+  Future<void> approvePropertyAsAdmin({required String propertyId}) async {
+    approvedPropertyIds.add(propertyId);
+  }
+
+  @override
+  Future<void> rejectPropertyAsAdmin({
+    required String propertyId,
+    required String moderationNote,
+  }) async {
+    rejectedProperties.add({'id': propertyId, 'note': moderationNote});
+  }
 }
 
 class _TestMockCloudinaryService extends CloudinaryService {
@@ -2056,6 +3266,7 @@ class _TestMockCloudinaryService extends CloudinaryService {
     required Uint8List bytes,
     required String fileName,
     String? folder,
+    String? propertyId,
   }) async {
     uploadCount++;
     if (uploadCount == 2) {
@@ -2075,6 +3286,44 @@ class _TestMockCloudinaryService extends CloudinaryService {
       return true;
     }
     return false;
+  }
+}
+
+class _CapturingHttpClient extends http.BaseClient {
+  final List<http.MultipartRequest> capturedRequests = [];
+  final List<http.BaseRequest> allRequests = [];
+  int sendCallCount = 0;
+  Future<http.StreamedResponse> Function(http.BaseRequest request, int callIndex)? responseHandler;
+
+  http.MultipartRequest? get lastRequest =>
+      capturedRequests.isNotEmpty ? capturedRequests.last : null;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    sendCallCount++;
+    allRequests.add(request);
+    if (request is http.MultipartRequest) {
+      capturedRequests.add(request);
+    }
+    if (responseHandler != null) {
+      return await responseHandler!(request, sendCallCount);
+    }
+    if (request.url.path.contains('delete_by_token')) {
+      final responseBody = jsonEncode({'result': 'ok'});
+      return http.StreamedResponse(
+        Stream.value(utf8.encode(responseBody)),
+        200,
+      );
+    }
+    final responseBody = jsonEncode({
+      'secure_url': 'https://res.cloudinary.com/sgbsxxtm/image/upload/v1/properties/test.jpg',
+      'public_id': 'properties/test',
+      'delete_token': 'del_token_capture_$sendCallCount',
+    });
+    return http.StreamedResponse(
+      Stream.value(utf8.encode(responseBody)),
+      200,
+    );
   }
 }
 
@@ -2101,4 +3350,289 @@ class _TestFakeUser extends Fake implements User {
 
   @override
   final String? phoneNumber;
+
+  @override
+  bool get emailVerified => true;
+
+  @override
+  Future<void> delete() async {}
+}
+
+// -----------------------------------------------------------------------------
+// Edit Listing Dialog Regression Test
+// -----------------------------------------------------------------------------
+
+void _registerEditListingTest() {
+  testWidgets('PostPropertyScreen edit listing dialog opens without freezing or crashing', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final listing = SubmittedListing(
+      id: 'prop-1',
+      submittedAt: DateTime(2026, 1, 1),
+      photos: [
+        WizardPhotoItem(
+          id: 'photo-0',
+          label: 'Master Bedroom',
+          networkUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688',
+          isCover: true,
+        ),
+      ],
+      property: const Property(
+        id: 'prop-1',
+        title: 'Bashundhara R/A 3BHK',
+        area: 'Block C, Bashundhara R/A, Dhaka',
+        landmark: 'Near Apollo Hospital',
+        rentPerMonth: 35000,
+        depositAmount: 70000,
+        availability: 'Available from 15th of next month',
+        availableNow: false,
+        description: 'Spacious family apartment',
+        type: PropertyType.family,
+        bedrooms: 3,
+        bathrooms: 2,
+        icon: Icons.apartment,
+        gradientStart: Colors.blue,
+        gradientEnd: Colors.indigo,
+      ),
+      status: ListingStatus.pendingReview,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PostPropertyScreen(
+            initialTab: 1, // My Listings tab
+            myListings: [listing],
+            firebaseUser: _TestFakeUser(
+              uid: 'owner_user_777',
+              email: 'owner@bashalagbe.com',
+              displayName: 'Property Owner',
+            ),
+            onListingSubmitted: (_) {},
+            onListingDeleted: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bashundhara R/A 3BHK'), findsOneWidget);
+
+    final editBtn = find.byTooltip('Edit listing details');
+    expect(editBtn, findsOneWidget);
+    await tester.tap(editBtn);
+    await tester.pumpAndSettle();
+
+    // Verify dialog title and form field pre-population
+    expect(find.text('Edit: Bashundhara R/A 3BHK'), findsOneWidget);
+    expect(find.text('35000'), findsOneWidget);
+    expect(find.text('70000'), findsOneWidget);
+    expect(find.text('Spacious family apartment'), findsOneWidget);
+    expect(find.text('Available from 15th of next month'), findsWidgets);
+
+    // Verify Cancel button dismisses cleanly
+    final cancelBtn = find.text('Cancel');
+    expect(cancelBtn, findsOneWidget);
+    await tester.tap(cancelBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit: Bashundhara R/A 3BHK'), findsNothing);
+  });
+
+  testWidgets('PostPropertyScreen edit listing dialog handles custom/legacy availability string gracefully', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final listing = SubmittedListing(
+      id: 'prop-custom',
+      submittedAt: DateTime(2026, 1, 1),
+      property: const Property(
+        id: 'prop-custom',
+        title: 'Custom Availability Flat',
+        area: 'Dhanmondi, Dhaka',
+        landmark: 'Near Dhanmondi Lake',
+        rentPerMonth: 25000,
+        availability: 'Available from 1st of December 2026',
+        availableNow: false,
+        type: PropertyType.family,
+        bedrooms: 2,
+        bathrooms: 2,
+        icon: Icons.apartment,
+        gradientStart: Colors.teal,
+        gradientEnd: Colors.green,
+      ),
+      status: ListingStatus.pendingReview,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PostPropertyScreen(
+            initialTab: 1,
+            myListings: [listing],
+            firebaseUser: _TestFakeUser(
+              uid: 'owner_user_777',
+              email: 'owner@bashalagbe.com',
+              displayName: 'Property Owner',
+            ),
+            onListingSubmitted: (_) {},
+            onListingDeleted: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final editBtn = find.byTooltip('Edit listing details');
+    await tester.tap(editBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit: Custom Availability Flat'), findsOneWidget);
+    expect(find.text('Available from 1st of December 2026'), findsWidgets);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit: Custom Availability Flat'), findsNothing);
+  });
+
+  test('Firestore emulator host resolves to 10.0.2.2 on Android and localhost on Web/Desktop', () {
+    expect(
+      getFirestoreEmulatorHost(isWeb: false, platform: TargetPlatform.android),
+      equals('10.0.2.2'),
+    );
+    expect(
+      getFirestoreEmulatorHost(isWeb: true, platform: TargetPlatform.android),
+      equals('localhost'),
+    );
+    expect(
+      getFirestoreEmulatorHost(isWeb: false, platform: TargetPlatform.iOS),
+      equals('localhost'),
+    );
+    expect(
+      getFirestoreEmulatorHost(isWeb: false, platform: TargetPlatform.windows),
+      equals('localhost'),
+    );
+  });
+
+  test('AuthService.getFriendlyErrorMessage handles requires-recent-login', () {
+    final exc = FirebaseAuthException(code: 'requires-recent-login');
+    final message = AuthService.getFriendlyErrorMessage(exc);
+    expect(message, contains('log out and log back in before deleting your account'));
+  });
+
+  testWidgets('Profile: Privacy Policy & Terms displays comprehensive disclosures', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: PrivacyTermsSheet(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Privacy Policy & Terms'), findsOneWidget);
+    expect(find.text('1. Service Overview'), findsOneWidget);
+    expect(find.text('2. Data Collection & Authentication'), findsOneWidget);
+    expect(find.text('3. Cloud Storage & Media Services'), findsOneWidget);
+    expect(find.text('4. Contact Privacy & Tenant Protection'), findsOneWidget);
+    expect(find.text('5. User Data Rights & Account Deletion'), findsOneWidget);
+    expect(find.text('6. Prohibited Content & Listing Integrity'), findsOneWidget);
+    expect(find.text('7. Disclaimer of Liability'), findsOneWidget);
+    expect(find.textContaining('bashalagbe-f9595'), findsOneWidget);
+    expect(find.textContaining('Cloudinary'), findsOneWidget);
+  });
+
+  testWidgets('Profile: Delete Account is visible for signed-in user and shows confirmation dialog', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    const testProfile = UserProfile(
+      name: 'Rafiul Islam',
+      email: 'rafiul@test.com',
+      phone: '01711223344',
+      role: 'Verified Renter & Host',
+    );
+    final fakeUser = _TestFakeUser(uid: 'user_delete_test', email: 'rafiul@test.com');
+
+    // 1. Verify Delete Account is NOT visible when unauthenticated
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            firebaseUser: null,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 0,
+            savedCount: 0,
+            rentalRequests: const [],
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Delete Account'), findsNothing);
+
+    // 2. Verify Delete Account is visible when authenticated
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileScreen(
+            profile: testProfile,
+            firebaseUser: fakeUser,
+            onProfileUpdated: (_) {},
+            onCancelRentalRequest: (_) {},
+            onNavigateToHome: () {},
+            listingsCount: 0,
+            savedCount: 0,
+            rentalRequests: const [],
+            onNavigateToMyListings: () {},
+            onNavigateToSaved: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final deleteTile = find.text('Delete Account');
+    expect(deleteTile, findsOneWidget);
+
+    // Scroll to delete tile if needed and tap
+    await tester.ensureVisible(deleteTile);
+    await tester.tap(deleteTile);
+    await tester.pumpAndSettle();
+
+    // Verify confirmation dialog
+    expect(find.text('Are you sure you want to permanently delete your BashaLagbe account and profile data? This action cannot be undone.'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Delete Permanently'), findsOneWidget);
+
+    // Tap Cancel
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Are you sure you want to permanently delete your BashaLagbe account and profile data? This action cannot be undone.'), findsNothing);
+  });
 }

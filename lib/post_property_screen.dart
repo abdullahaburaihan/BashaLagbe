@@ -8,15 +8,16 @@ import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/profile_screen.dart';
 import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/services/cloudinary_service.dart';
+import 'package:basha_lagbe/chat_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Models for Post Property Wizard & My Listings
 // ---------------------------------------------------------------------------
 
 enum ListingStatus {
-  pendingReview('Pending Review', Color(0xFFB7791F), Color(0xFFFFF3D6)),
-  approved('Approved (Live)', Color(0xFF0E5E3B), Color(0xFFE3F4EA)),
-  rejected('Needs Revision', Color(0xFFC53030), Color(0xFFFFE3E3));
+  pendingReview('Pending Review', Color(0xFF8A5200), Color(0xFFFFF1D6)),
+  approved('Approved (Live)', Color(0xFF246B45), Color(0xFFE7F2E9)),
+  rejected('Needs Revision', Color(0xFFB4232F), Color(0xFFFCE9E8));
 
   const ListingStatus(this.label, this.foreground, this.background);
   final String label;
@@ -1685,7 +1686,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFF4F9F6),
+            color: AppColors.background,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.green.withAlpha(80)),
           ),
@@ -2789,7 +2790,7 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
 
     showDialog<void>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -2797,88 +2798,118 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
               hasLoadedContact = true;
               FirestoreService.instance.getPropertyContactInfo(item.id).then((contact) {
                 if (contact != null && dialogContext.mounted) {
-                  setDialogState(() {
-                    phoneController.text = contact.phone ?? '';
-                    whatsappController.text = contact.whatsapp ?? '';
-                    emailController.text = contact.email ?? '';
-                    otherTitleController.text = contact.otherTitle ?? '';
-                    otherLinkController.text = contact.otherLink ?? '';
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (dialogContext.mounted) {
+                      setDialogState(() {
+                        phoneController.text = contact.phone ?? '';
+                        whatsappController.text = contact.whatsapp ?? '';
+                        emailController.text = contact.email ?? '';
+                        otherTitleController.text = contact.otherTitle ?? '';
+                        otherLinkController.text = contact.otherLink ?? '';
+                      });
+                    }
                   });
                 }
               }).catchError((_) {});
             }
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Row(
-                children: [
-                  const Icon(Icons.edit_note, color: AppColors.green),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Edit: ${property.title}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            final availabilityOptions = <String>[
+              'Available now',
+              'Available from 1st of next month',
+              'Available from 15th of next month',
+              'Booked / Unavailable',
+            ];
+            final trimmedAvailability = selectedAvailability.trim();
+            if (trimmedAvailability.isNotEmpty && !availabilityOptions.contains(trimmedAvailability)) {
+              availabilityOptions.insert(0, trimmedAvailability);
+            }
+            final currentAvailability = availabilityOptions.contains(trimmedAvailability)
+                ? trimmedAvailability
+                : 'Available now';
+
+            final dialogWidth = (MediaQuery.of(context).size.width - 48).clamp(280.0, 520.0);
+
+            return PopScope(
+              canPop: !isSaving,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Row(
                   children: [
-                    const Text(
-                      'Update key details for this listing. Saving changes will submit the listing for moderation review before appearing live.',
-                      style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: rentController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Monthly Rent (৳)',
-                        prefixIcon: Icon(Icons.payments_outlined, color: AppColors.green),
-                        border: OutlineInputBorder(),
+                    const Icon(Icons.edit_note, color: AppColors.green),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Edit: ${property.title}',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: depositController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Deposit Amount (৳)',
-                        prefixIcon: Icon(Icons.account_balance_wallet_outlined, color: AppColors.green),
-                        border: OutlineInputBorder(),
-                      ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: dialogWidth,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.8,
                     ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedAvailability.toLowerCase().contains('now')
-                          ? 'Available now'
-                          : selectedAvailability,
-                      decoration: const InputDecoration(
-                        labelText: 'Availability',
-                        prefixIcon: Icon(Icons.event_available, color: AppColors.green),
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'Available now', child: Text('Available now')),
-                        DropdownMenuItem(
-                          value: 'Available from 1st of next month',
-                          child: Text('Available from 1st of next month'),
+                    child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Update key details for this listing. Saving changes will submit the listing for moderation review before appearing live.',
+                          style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
                         ),
-                        DropdownMenuItem(value: 'Booked / Unavailable', child: Text('Booked / Unavailable')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() {
-                            selectedAvailability = val;
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: rentController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Monthly Rent (৳)',
+                            prefixIcon: Icon(Icons.payments_outlined, color: AppColors.green),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: depositController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Deposit Amount (৳)',
+                            prefixIcon: Icon(Icons.account_balance_wallet_outlined, color: AppColors.green),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: currentAvailability,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Availability',
+                            prefixIcon: Icon(Icons.event_available, color: AppColors.green),
+                            border: OutlineInputBorder(),
+                          ),
+                          items: availabilityOptions.map((opt) {
+                            return DropdownMenuItem<String>(
+                              value: opt,
+                              child: Text(
+                                opt,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: isSaving
+                              ? null
+                              : (val) {
+                                  if (val != null) {
+                                    setDialogState(() {
+                                      selectedAvailability = val;
+                                    });
+                                  }
+                                },
+                        ),
+                        const SizedBox(height: 12),
                     TextField(
                       controller: descController,
                       maxLines: 3,
@@ -3025,124 +3056,128 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                     else
                       SizedBox(
                         height: 90,
-                        child: ListView.separated(
+                        child: SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
-                          itemCount: editPhotos.length,
-                          separatorBuilder: (context, index) => const SizedBox(width: 8),
-                          itemBuilder: (context, idx) {
-                            final p = editPhotos[idx];
-                            return Stack(
-                              children: [
-                                Container(
-                                  width: 90,
-                                  height: 90,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: p.isCover ? AppColors.green : AppColors.border,
-                                      width: p.isCover ? 2.5 : 1,
-                                    ),
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: p.isMemory
-                                      ? Image.memory(p.bytes!, fit: BoxFit.cover)
-                                      : (p.isNetwork
-                                          ? Image.network(
-                                              p.networkUrl!,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (context, error, stackTrace) => Container(
-                                                color: AppColors.lightGreen,
-                                                child: const Icon(Icons.broken_image, color: AppColors.green),
-                                              ),
-                                            )
-                                          : Container(
-                                              color: AppColors.lightGreen,
-                                              child: const Icon(Icons.home, color: AppColors.green),
-                                            )),
-                                ),
-                                Positioned(
-                                  top: 4,
-                                  right: 4,
-                                  child: CircleAvatar(
-                                    radius: 12,
-                                    backgroundColor: Colors.black.withAlpha(160),
-                                    child: IconButton(
-                                      padding: EdgeInsets.zero,
-                                      iconSize: 14,
-                                      icon: const Icon(Icons.close, color: Colors.white),
-                                      onPressed: isSaving
-                                          ? null
-                                          : () {
-                                              setDialogState(() {
-                                                final removed = editPhotos.removeAt(idx);
-                                                if (removed.isCover && editPhotos.isNotEmpty) {
-                                                  editPhotos.first.isCover = true;
-                                                }
-                                              });
-                                            },
-                                    ),
-                                  ),
-                                ),
-                                if (p.isCover)
-                                  Positioned(
-                                    bottom: 4,
-                                    left: 4,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          child: Row(
+                            children: [
+                              for (var idx = 0; idx < editPhotos.length; idx++) ...[
+                                if (idx > 0) const SizedBox(width: 8),
+                                Stack(
+                                  children: [
+                                    Container(
+                                      width: 90,
+                                      height: 90,
                                       decoration: BoxDecoration(
-                                        color: AppColors.green,
-                                        borderRadius: BorderRadius.circular(6),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: editPhotos[idx].isCover ? AppColors.green : AppColors.border,
+                                          width: editPhotos[idx].isCover ? 2.5 : 1,
+                                        ),
                                       ),
-                                      child: const Text(
-                                        'Cover',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w800,
+                                      clipBehavior: Clip.antiAlias,
+                                      child: editPhotos[idx].isMemory
+                                          ? Image.memory(editPhotos[idx].bytes!, fit: BoxFit.cover)
+                                          : (editPhotos[idx].isNetwork
+                                              ? Image.network(
+                                                  editPhotos[idx].networkUrl!,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (context, error, stackTrace) => Container(
+                                                    color: AppColors.lightGreen,
+                                                    child: const Icon(Icons.broken_image, color: AppColors.green),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  color: AppColors.lightGreen,
+                                                  child: const Icon(Icons.home, color: AppColors.green),
+                                                )),
+                                    ),
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: Colors.black.withAlpha(160),
+                                        child: IconButton(
+                                          padding: EdgeInsets.zero,
+                                          iconSize: 14,
+                                          icon: const Icon(Icons.close, color: Colors.white),
+                                          onPressed: isSaving
+                                              ? null
+                                              : () {
+                                                  setDialogState(() {
+                                                    final removed = editPhotos.removeAt(idx);
+                                                    if (removed.isCover && editPhotos.isNotEmpty) {
+                                                      editPhotos.first.isCover = true;
+                                                    }
+                                                  });
+                                                },
                                         ),
                                       ),
                                     ),
-                                  )
-                                else
-                                  Positioned(
-                                    bottom: 4,
-                                    left: 4,
-                                    child: InkWell(
-                                      onTap: isSaving
-                                          ? null
-                                          : () {
-                                              setDialogState(() {
-                                                for (var i = 0; i < editPhotos.length; i++) {
-                                                  editPhotos[i].isCover = (i == idx);
-                                                }
-                                              });
-                                            },
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withAlpha(140),
-                                          borderRadius: BorderRadius.circular(6),
+                                    if (editPhotos[idx].isCover)
+                                      Positioned(
+                                        bottom: 4,
+                                        left: 4,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.green,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'Cover',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
                                         ),
-                                        child: const Text(
-                                          'Set Cover',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 8.5,
-                                            fontWeight: FontWeight.w700,
+                                      )
+                                    else
+                                      Positioned(
+                                        bottom: 4,
+                                        left: 4,
+                                        child: InkWell(
+                                          onTap: isSaving
+                                              ? null
+                                              : () {
+                                                  setDialogState(() {
+                                                    for (var i = 0; i < editPhotos.length; i++) {
+                                                      editPhotos[i].isCover = (i == idx);
+                                                    }
+                                                  });
+                                                },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withAlpha(140),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: const Text(
+                                              'Set Cover',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 8.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ),
+                                  ],
+                                ),
                               ],
-                            );
-                          },
+                            ],
+                          ),
                         ),
                       ),
                   ],
                 ),
               ),
-              actions: [
+            ),
+          ),
+          actions: [
                 TextButton(
                   onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
                   child: const Text('Cancel'),
@@ -3227,13 +3262,22 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                               updates: updates,
                             );
 
-                            // Clean up removed photos from Storage if they had storage paths
+                            // Clean up removed photos from Cloudinary via cleanup queue
                             final removedPaths = item.photos
                                 .where((p) => p.storagePath != null && !editPhotos.any((ep) => ep.storagePath == p.storagePath))
                                 .map((p) => p.storagePath!)
                                 .toList();
-                            for (final p in removedPaths) {
-                              FirestoreService.instance.deleteStorageFile(p);
+                            if (removedPaths.isNotEmpty) {
+                              try {
+                                await FirestoreService.instance.queueMediaCleanup(
+                                  ownerId: widget.firebaseUser!.uid,
+                                  propertyId: item.id,
+                                  publicIds: removedPaths,
+                                  reason: 'photo_removed_during_edit',
+                                );
+                              } catch (cleanupErr) {
+                                debugPrint('Notice: Failed to queue removed photos for cleanup: $cleanupErr');
+                              }
                             }
 
                             // Update local item
@@ -3303,10 +3347,11 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                       : const Text('Save Changes'),
                 ),
               ],
-            );
-          },
-        );
-      },
+            ),
+          );
+        },
+      );
+    },
     ).then((_) {
       rentController.dispose();
       depositController.dispose();
@@ -3340,9 +3385,15 @@ class _PostPropertyScreenState extends State<PostPropertyScreen> {
                 Navigator.of(dialogContext).pop();
                 if (widget.firebaseUser != null && !item.isDemo) {
                   try {
+                    final photoPaths = item.photos
+                        .map((p) => p.storagePath)
+                        .where((p) => p != null && p.trim().isNotEmpty)
+                        .cast<String>()
+                        .toList();
                     await FirestoreService.instance.deleteProperty(
                       propertyId: item.id,
                       ownerId: widget.firebaseUser!.uid,
+                      photoStoragePaths: photoPaths,
                     );
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -3511,13 +3562,13 @@ class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
     String label;
 
     if (req.isAccepted) {
-      bg = const Color(0xFFE3F4EA);
-      fg = const Color(0xFF0E5E3B);
+      bg = AppColors.successSurface;
+      fg = AppColors.success;
       icon = Icons.check_circle_outline;
       label = 'Accepted';
     } else if (req.isRejected) {
-      bg = const Color(0xFFFFE3E3);
-      fg = const Color(0xFFC53030);
+      bg = AppColors.errorSurface;
+      fg = AppColors.error;
       icon = Icons.highlight_off_outlined;
       label = 'Declined';
     } else if (req.isCancelled) {
@@ -3954,13 +4005,13 @@ class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 color: req.isAccepted
-                                    ? const Color(0xFFE3F4EA).withAlpha(160)
-                                    : const Color(0xFFFFE3E3).withAlpha(160),
+                                    ? AppColors.successSurface
+                                    : AppColors.errorSurface,
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: req.isAccepted
-                                      ? const Color(0xFF0E5E3B).withAlpha(60)
-                                      : const Color(0xFFC53030).withAlpha(60),
+                                      ? AppColors.success.withAlpha(60)
+                                      : AppColors.error.withAlpha(60),
                                 ),
                               ),
                               child: Row(
@@ -3969,7 +4020,7 @@ class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
                                   Icon(
                                     req.isAccepted ? Icons.check_circle_outline : Icons.info_outline,
                                     size: 16,
-                                    color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                    color: req.isAccepted ? AppColors.success : AppColors.error,
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
@@ -3978,7 +4029,7 @@ class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontStyle: FontStyle.italic,
-                                        color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                        color: req.isAccepted ? AppColors.success : AppColors.error,
                                       ),
                                     ),
                                   ),
@@ -4039,21 +4090,74 @@ class _LandlordRequestsSheetState extends State<LandlordRequestsSheet> {
                                   ],
                                 ),
                               ] else ...[
-                                Text(
-                                  req.isAccepted
-                                      ? 'Accepted'
-                                      : req.isRejected
-                                          ? 'Declined'
-                                          : 'Withdrawn by Tenant',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: req.isAccepted
-                                        ? const Color(0xFF0E5E3B)
-                                        : req.isRejected
-                                            ? const Color(0xFFC53030)
-                                            : AppColors.textMuted,
-                                  ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      req.isAccepted
+                                          ? 'Accepted'
+                                          : req.isRejected
+                                              ? 'Declined'
+                                              : 'Withdrawn by Tenant',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: req.isAccepted
+                                            ? AppColors.success
+                                            : req.isRejected
+                                                ? AppColors.error
+                                                : AppColors.textMuted,
+                                      ),
+                                    ),
+                                    if (req.isAccepted) ...[
+                                      const SizedBox(width: 8),
+                                      FilledButton.icon(
+                                        onPressed: () async {
+                                          final tenantId = req.tenantId;
+                                          if (tenantId == null || tenantId.isEmpty) return;
+                                          try {
+                                            final convId = await FirestoreService.instance.getOrCreateConversation(
+                                              propertyId: req.property.id,
+                                              propertyTitle: req.property.title,
+                                              ownerId: widget.currentUserId,
+                                              tenantId: tenantId,
+                                              tenantName: req.renterName,
+                                            );
+                                            if (context.mounted) {
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) => ChatScreen(
+                                                    conversation: Conversation(
+                                                      id: convId,
+                                                      requestId: convId,
+                                                      propertyId: req.property.id,
+                                                      propertyTitle: req.property.title,
+                                                      ownerId: widget.currentUserId,
+                                                      tenantId: tenantId,
+                                                      tenantName: req.renterName,
+                                                      createdAt: DateTime.now(),
+                                                      updatedAt: DateTime.now(),
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              showFriendlyMessage(context, 'Failed to open chat: $e');
+                                            }
+                                          }
+                                        },
+                                        icon: const Icon(Icons.chat_bubble_outline, size: 14),
+                                        label: const Text('Chat'),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AppColors.green,
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ],
                             ],

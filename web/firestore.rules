@@ -91,7 +91,10 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     match /properties/{propertyId} {
       allow read: if resource.data.status == 'approved'
-                  || (isAuthenticated() && resource.data.ownerId == request.auth.uid);
+                  || (isAuthenticated() && (
+                       resource.data.ownerId == request.auth.uid
+                       || isAdmin()
+                     ));
 
       allow create: if isAuthenticated()
                     && request.resource.data.ownerId == request.auth.uid
@@ -331,7 +334,155 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
-    // 4. Default Catch-All Deny
+    // 4. In-App Landlord-Tenant Conversations & Real-Time Messaging
+    // -------------------------------------------------------------------------
+    match /conversations/{conversationId} {
+      // 1. Get: Single document fetch & pre-creation validation for accepted rental request
+      allow get: if isAuthenticated() && (
+        (
+          resource != null && (
+            resource.data.ownerId == request.auth.uid ||
+            resource.data.tenantId == request.auth.uid
+          )
+        )
+        ||
+        (
+          resource == null
+          && exists(/databases/$(database)/documents/rental_requests/$(conversationId))
+          && get(/databases/$(database)/documents/rental_requests/$(conversationId)).data.status == 'accepted'
+          && (
+            get(/databases/$(database)/documents/rental_requests/$(conversationId)).data.ownerId == request.auth.uid ||
+            get(/databases/$(database)/documents/rental_requests/$(conversationId)).data.tenantId == request.auth.uid
+          )
+        )
+      );
+
+      // 2. List: Collection queries strictly filtered by participant UID
+      allow list: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.tenantId == request.auth.uid
+      );
+
+      // 2. Create: Either participant can initiate conversation for an accepted rental request
+      allow create: if isAuthenticated()
+                    && (request.auth.uid == request.resource.data.ownerId || request.auth.uid == request.resource.data.tenantId)
+                    && request.resource.data.ownerId != request.resource.data.tenantId
+                    && request.resource.data.propertyId is string
+                    && request.resource.data.propertyId.size() > 0
+                    && request.resource.data.requestId == request.resource.data.propertyId + '_' + request.resource.data.tenantId
+                    && conversationId == request.resource.data.propertyId + '_' + request.resource.data.tenantId
+                    && request.resource.data.propertyTitle is string
+                    && request.resource.data.propertyTitle.size() > 0
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.keys().hasOnly([
+                         'requestId', 'propertyId', 'propertyTitle', 'ownerId',
+                         'tenantId', 'tenantName', 'lastMessageText', 'lastMessageSenderId',
+                         'lastMessageAt', 'createdAt', 'updatedAt'
+                       ])
+                    && exists(/databases/$(database)/documents/rental_requests/$(request.resource.data.requestId))
+                    && get(/databases/$(database)/documents/rental_requests/$(request.resource.data.requestId)).data.status == 'accepted'
+                    && get(/databases/$(database)/documents/rental_requests/$(request.resource.data.requestId)).data.ownerId == request.resource.data.ownerId
+                    && get(/databases/$(database)/documents/rental_requests/$(request.resource.data.requestId)).data.tenantId == request.resource.data.tenantId;
+
+      // 3. Update: Participants can update lastMessage snippet and updatedAt while linked rental request is accepted
+      allow update: if isAuthenticated()
+                    && (resource.data.ownerId == request.auth.uid || resource.data.tenantId == request.auth.uid)
+                    && request.resource.data.ownerId == resource.data.ownerId
+                    && request.resource.data.tenantId == resource.data.tenantId
+                    && request.resource.data.propertyId == resource.data.propertyId
+                    && request.resource.data.requestId == resource.data.requestId
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'lastMessageText', 'lastMessageSenderId', 'lastMessageAt', 'updatedAt'
+                       ])
+                    && request.resource.data.lastMessageSenderId == request.auth.uid
+                    && (request.resource.data.lastMessageText is string && request.resource.data.lastMessageText.size() <= 2000)
+                    && exists(/databases/$(database)/documents/rental_requests/$(resource.data.requestId))
+                    && get(/databases/$(database)/documents/rental_requests/$(resource.data.requestId)).data.status == 'accepted'
+                    && get(/databases/$(database)/documents/rental_requests/$(resource.data.requestId)).data.ownerId == resource.data.ownerId
+                    && get(/databases/$(database)/documents/rental_requests/$(resource.data.requestId)).data.tenantId == resource.data.tenantId;
+
+      // 4. Delete: Denied (preserves conversation audit log)
+      allow delete: if false;
+
+      // Messages Subcollection
+      match /messages/{messageId} {
+        // Read: Participant in parent conversation
+        allow read: if isAuthenticated()
+                    && exists(/databases/$(database)/documents/conversations/$(conversationId))
+                    && (
+                      get(/databases/$(database)/documents/conversations/$(conversationId)).data.ownerId == request.auth.uid ||
+                      get(/databases/$(database)/documents/conversations/$(conversationId)).data.tenantId == request.auth.uid
+                    );
+
+        // Create: Participant sends message; parent rental request must still be accepted
+        allow create: if isAuthenticated()
+                      && request.resource.data.senderId == request.auth.uid
+                      && request.resource.data.conversationId == conversationId
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 2000
+                      && request.resource.data.createdAt == request.time
+                      && request.resource.data.keys().hasOnly(['conversationId', 'senderId', 'text', 'createdAt'])
+                      && exists(/databases/$(database)/documents/conversations/$(conversationId))
+                      && (
+                        get(/databases/$(database)/documents/conversations/$(conversationId)).data.ownerId == request.auth.uid ||
+                        get(/databases/$(database)/documents/conversations/$(conversationId)).data.tenantId == request.auth.uid
+                      )
+                      && exists(/databases/$(database)/documents/rental_requests/$(get(/databases/$(database)/documents/conversations/$(conversationId)).data.requestId))
+                      && get(/databases/$(database)/documents/rental_requests/$(get(/databases/$(database)/documents/conversations/$(conversationId)).data.requestId)).data.status == 'accepted';
+
+        // Update & Delete: Denied (messages are immutable)
+        allow update, delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Media Cleanup Tasks (/media_cleanup_tasks/{taskId})
+    // Created by property owner or admin when listings or photos are removed.
+    // Processed and finalized exclusively by trusted server-side Cloud Functions.
+    // -------------------------------------------------------------------------
+    match /media_cleanup_tasks/{taskId} {
+      allow read: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid || isAdmin()
+      );
+
+      allow create: if isAuthenticated()
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.retryCount == 0
+                    && request.resource.data.propertyId is string
+                    && request.resource.data.propertyId.size() > 0
+                    && request.resource.data.publicId is string
+                    && request.resource.data.reason in ['property_deleted', 'photo_removed_during_edit']
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.updatedAt == request.time
+                    && request.resource.data.keys().hasOnly([
+                         'publicId', 'propertyId', 'ownerId', 'status',
+                         'retryCount', 'reason', 'createdAt', 'updatedAt'
+                       ])
+                    && (
+                      // Branch A: Property Owner creating cleanup for own property asset
+                      // Strictly validates publicId structure matches 'properties/<ownerId>/<propertyId>/...'
+                      (
+                        request.resource.data.ownerId == request.auth.uid
+                        && request.resource.data.publicId.matches('^properties/' + request.auth.uid + '/' + request.resource.data.propertyId + '/.+$')
+                      )
+                      ||
+                      // Branch B: Verified Admin
+                      (
+                        isAdmin()
+                        && request.resource.data.ownerId is string
+                        && request.resource.data.publicId.matches('^properties/[^/]+/' + request.resource.data.propertyId + '/.+$')
+                      )
+                    );
+
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Default Catch-All Deny
     // -------------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;

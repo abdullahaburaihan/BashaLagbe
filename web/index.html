@@ -1,46 +1,188 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Find verified rental apartments, bachelor rooms, and shared homes across Bangladesh without broker fees.">
+  <meta name="theme-color" content="#244B3B">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="basha_lagbe">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BashaLagbe">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>basha_lagbe</title>
+  <title>BashaLagbe - বাসা লাগবে | Verified Rental Homes in Bangladesh</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #F7F4EC;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #basha-loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: #F7F4EC;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      transition: opacity 0.35s ease-out;
+      pointer-events: auto;
+    }
+
+    .brand-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 24px;
+      max-width: 340px;
+    }
+
+    .logo-container {
+      width: 88px;
+      height: 88px;
+      border-radius: 24px;
+      background: #244B3B;
+      box-shadow: 0 8px 24px rgba(36, 75, 59, 0.22);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      animation: float 2.4s ease-in-out infinite;
+    }
+
+    .logo-container svg {
+      width: 52px;
+      height: 52px;
+    }
+
+    .app-title {
+      font-size: 26px;
+      font-weight: 800;
+      color: #202923;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    .app-subtitle {
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #59655D;
+      margin-bottom: 24px;
+      letter-spacing: 0.2px;
+    }
+
+    .progress-bar-container {
+      width: 140px;
+      height: 4px;
+      background-color: #DCE6D9;
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      width: 45%;
+      height: 100%;
+      background: #244B3B;
+      border-radius: 4px;
+      position: absolute;
+      animation: indeterminate 1.4s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+
+    @keyframes indeterminate {
+      0% { left: -45%; width: 30%; }
+      50% { left: 35%; width: 50%; }
+      100% { left: 100%; width: 30%; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <!-- BashaLagbe Branded Splash / Loading Screen -->
+  <div id="basha-loading-screen">
+    <div class="brand-card">
+      <div class="logo-container">
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Chimney -->
+          <rect x="66" y="24" width="8" height="16" rx="2" fill="#F7F4EC"/>
+          <!-- Roof -->
+          <path d="M50 18L78 40L73.5 45L50 26.5L26.5 45L22 40L50 18Z" fill="#F7F4EC"/>
+          <!-- House Body -->
+          <rect x="29" y="41" width="42" height="34" rx="4" fill="#F7F4EC"/>
+          <!-- Arched Doorway -->
+          <path d="M43 52C43 48.134 46.134 45 50 45C53.866 45 57 48.134 57 52V75H43V52Z" fill="#244B3B"/>
+          <!-- Warm Clay Accent Heart Emblem -->
+          <path d="M50 56C49 53.5 46.5 53.5 45.5 55C44 57 47 60 50 62.5C53 60 56 57 54.5 55C53.5 53.5 51 53.5 50 56Z" fill="#B96E50"/>
+          <!-- Windows -->
+          <rect x="33.5" y="47" width="7" height="7" rx="1.5" fill="#DCE6D9"/>
+          <rect x="59.5" y="47" width="7" height="7" rx="1.5" fill="#DCE6D9"/>
+        </svg>
+      </div>
+      <div class="app-title">BashaLagbe</div>
+      <div class="app-subtitle">বাসা লাগবে • Rental Homes in Bangladesh</div>
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill"></div>
+      </div>
+    </div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    // Smoothly remove loading screen once Flutter canvas is ready
+    (function() {
+      var loadingScreen = document.getElementById('basha-loading-screen');
+      if (!loadingScreen) return;
+
+      function hideLoader() {
+        if (!loadingScreen) return;
+        loadingScreen.style.opacity = '0';
+        loadingScreen.style.pointerEvents = 'none';
+        setTimeout(function() {
+          if (loadingScreen && loadingScreen.parentNode) {
+            loadingScreen.parentNode.removeChild(loadingScreen);
+            loadingScreen = null;
+          }
+        }, 400);
+      }
+
+      // Check for Flutter DOM insertion via MutationObserver
+      var observer = new MutationObserver(function(mutations, obs) {
+        if (document.querySelector('flt-glass-pane') ||
+            document.querySelector('flutter-view') ||
+            document.querySelector('flt-scene-host')) {
+          obs.disconnect();
+          hideLoader();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      // Fallback safeguard in case Flutter takes longer to register DOM
+      window.addEventListener('flutter-first-frame', hideLoader);
+      setTimeout(hideLoader, 6000);
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

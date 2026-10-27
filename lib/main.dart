@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -14,6 +15,22 @@ import 'package:basha_lagbe/property_details_screen.dart';
 import 'package:basha_lagbe/post_property_screen.dart';
 import 'package:basha_lagbe/profile_screen.dart';
 
+/// Returns the appropriate Firestore emulator host based on the target platform.
+///
+/// On Android devices and emulators, the host machine's loopback is mapped to `10.0.2.2`.
+/// On web (Chrome) and desktop platforms, `localhost` maps directly to the host machine.
+@visibleForTesting
+String getFirestoreEmulatorHost({
+  bool isWeb = kIsWeb,
+  TargetPlatform? platform,
+}) {
+  final targetPlatform = platform ?? defaultTargetPlatform;
+  if (!isWeb && targetPlatform == TargetPlatform.android) {
+    return '10.0.2.2';
+  }
+  return 'localhost';
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -24,8 +41,9 @@ void main() async {
       'USE_FIREBASE_EMULATOR',
       defaultValue: false,
     )) {
-      FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
-      debugPrint('Firestore connected to local emulator at localhost:8080');
+      final host = getFirestoreEmulatorHost();
+      FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+      debugPrint('Firestore connected to local emulator at $host:8080');
     }
   } catch (e) {
     debugPrint('Firebase initialization notice: $e');
@@ -38,16 +56,42 @@ void main() async {
 // ---------------------------------------------------------------------------
 
 class AppColors {
-  static const Color green = Color(0xFF1B8A5A);
-  static const Color darkGreen = Color(0xFF0E5E3B);
-  static const Color lightGreen = Color(0xFFE3F4EA);
-  static const Color background = Color(0xFFF5FAF6);
-  static const Color border = Color(0xFFDDEBE2);
-  static const Color textDark = Color(0xFF1C2B24);
-  static const Color textMuted = Color(0xFF66766D);
-  static const Color amber = Color(0xFFB7791F);
-  static const Color amberLight = Color(0xFFFFF3D6);
-  static const Color heart = Color(0xFFE53935);
+  // Primary brand
+  static const Color primary = Color(0xFF244B3B);
+  static const Color primaryDark = Color(0xFF1A382C);
+  static const Color green = primary; // Backward-compatible alias
+  static const Color darkGreen = primaryDark; // Backward-compatible alias
+  static const Color secondarySage = Color(0xFFDCE6D9);
+  static const Color lightGreen = secondarySage; // Backward-compatible alias
+
+  // Background and surfaces
+  static const Color background = Color(0xFFF7F4EC); // Warm ivory
+  static const Color surface = Color(0xFFFFFFFF);
+  static const Color border = Color(0xFFDADFD8);
+
+  // Typography
+  static const Color textDark = Color(0xFF202923); // Primary text
+  static const Color textMuted = Color(0xFF59655D); // Secondary text
+  static const Color textTertiary = Color(0xFF707A73); // Tertiary text
+  static const Color textInverse = Color(0xFFFFFFFF); // Inverse text
+
+  // Semantic statuses
+  static const Color success = Color(0xFF246B45);
+  static const Color successSurface = Color(0xFFE7F2E9);
+  static const Color warning = Color(0xFF8A5200);
+  static const Color warningSurface = Color(0xFFFFF1D6);
+  static const Color amber = warning; // Backward-compatible alias
+  static const Color amberLight = warningSurface; // Backward-compatible alias
+  static const Color error = Color(0xFFB4232F);
+  static const Color errorSurface = Color(0xFFFCE9E8);
+  static const Color favourite = Color(0xFFB4234B);
+  static const Color favouriteSurface = Color(0xFFFBE8EE);
+  static const Color heart = favourite; // Backward-compatible alias
+
+  // Accents and states
+  static const Color clay = Color(0xFFB96E50);
+  static const Color disabledSurface = Color(0xFFE8EBE6);
+  static const Color disabledText = Color(0xFF68716B);
 }
 
 // ---------------------------------------------------------------------------
@@ -74,14 +118,74 @@ class BashaLagbeApp extends StatelessWidget {
       ),
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'Inter',
+        fontFamilyFallback: const [
+          'Noto Sans Bengali',
+          'Hind Siliguri',
+          'SolaimanLipi',
+          'Kalpurush',
+          'sans-serif',
+        ],
         colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.green,
+          seedColor: AppColors.primary,
           brightness: Brightness.light,
+          surface: AppColors.surface,
+          onSurface: AppColors.textDark,
+          primary: AppColors.primary,
+          onPrimary: AppColors.textInverse,
+          secondary: AppColors.secondarySage,
+          onSecondary: AppColors.textDark,
+          error: AppColors.error,
+          onError: AppColors.textInverse,
         ),
         scaffoldBackgroundColor: AppColors.background,
-        navigationBarTheme: const NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.lightGreen,
+        dividerColor: AppColors.border,
+        dividerTheme: const DividerThemeData(
+          color: AppColors.border,
+          thickness: 1,
+          space: 1,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: AppColors.surface,
+          foregroundColor: AppColors.textDark,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          shape: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+        ),
+        cardTheme: CardThemeData(
+          color: AppColors.surface,
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppColors.border, width: 1),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: AppColors.surface,
+          indicatorColor: AppColors.secondarySage,
+          elevation: 0,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textDark,
+              );
+            }
+            return const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textMuted,
+            );
+          }),
+          iconTheme: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return const IconThemeData(color: AppColors.primary);
+            }
+            return const IconThemeData(color: AppColors.textMuted);
+          }),
         ),
       ),
       home: MainShell(initialApprovedProperties: initialApprovedProperties),
@@ -248,12 +352,14 @@ class _MainShellState extends State<MainShell> {
 
   int _postInitialTab = 0;
 
-  UserProfile _userProfile = const UserProfile(
+  static const _defaultGuestProfile = UserProfile(
     name: 'BashaLagbe User',
     email: '',
     phone: '',
     role: 'Guest Renter',
   );
+
+  UserProfile _userProfile = _defaultGuestProfile;
 
   final List<RentalRequest> _rentalRequests = [];
 
@@ -295,6 +401,8 @@ class _MainShellState extends State<MainShell> {
               : _userProfile.name;
           final email = user.email ?? _userProfile.email;
           _userProfile = _userProfile.copyWith(name: name, email: email);
+        } else {
+          _userProfile = _defaultGuestProfile;
         }
       });
 
@@ -603,6 +711,7 @@ class _MainShellState extends State<MainShell> {
             _unsubscribeTenantRequests();
             setState(() {
               _firebaseUser = null;
+              _userProfile = _defaultGuestProfile;
             });
           },
           onProfileUpdated: (updated) {
@@ -993,14 +1102,10 @@ class HomeHeader extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(20, topPadding + 16, 20, 24),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.green, AppColors.darkGreen],
-        ),
+        color: AppColors.green,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
         ),
       ),
       child: Column(
@@ -1068,7 +1173,18 @@ class HomeHeader extends StatelessWidget {
               contentPadding: const EdgeInsets.symmetric(vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: AppColors.darkGreen,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -1152,7 +1268,7 @@ class PropertyCard extends StatelessWidget {
       color: Colors.white,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         side: const BorderSide(color: AppColors.border),
       ),
       child: InkWell(
@@ -1239,7 +1355,7 @@ class PropertyCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
-                          color: AppColors.darkGreen,
+                          color: AppColors.textDark,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -1520,7 +1636,7 @@ class InfoPill extends StatelessWidget {
     super.key,
     required this.icon,
     required this.label,
-    this.background = const Color(0xFFF0F4F1),
+    this.background = AppColors.secondarySage,
     this.foreground = AppColors.textDark,
   });
 

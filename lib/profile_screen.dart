@@ -5,6 +5,9 @@ import 'package:basha_lagbe/main.dart';
 import 'package:basha_lagbe/auth_sheet.dart';
 import 'package:basha_lagbe/services/auth_service.dart';
 import 'package:basha_lagbe/services/firestore_service.dart';
+import 'package:basha_lagbe/admin_dashboard_screen.dart';
+import 'package:basha_lagbe/chat_screen.dart';
+import 'package:basha_lagbe/conversations_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Models for User Profile & Rental Requests
@@ -133,6 +136,7 @@ class ProfileScreen extends StatefulWidget {
     required this.onNavigateToMyListings,
     required this.onNavigateToSaved,
     required this.onNavigateToHome,
+    this.firestoreService,
   });
 
   final UserProfile profile;
@@ -146,12 +150,14 @@ class ProfileScreen extends StatefulWidget {
   final VoidCallback onNavigateToMyListings;
   final VoidCallback onNavigateToSaved;
   final VoidCallback onNavigateToHome;
+  final FirestoreService? firestoreService;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  FirestoreService get _service => widget.firestoreService ?? FirestoreService.instance;
   bool _notificationsEnabled = true;
 
   void _openAuthSheet({bool isRegister = false}) {
@@ -202,6 +208,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red.shade700),
+            const SizedBox(width: 8),
+            const Text('Delete Account'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to permanently delete your BashaLagbe account and profile data? This action cannot be undone.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(dialogCtx).pop();
+              final uid = widget.firebaseUser?.uid;
+              try {
+                if (uid != null) {
+                  await FirestoreService.instance.deleteUserProfile(uid);
+                }
+                await AuthService.instance.deleteAccount();
+                widget.onSignOut?.call();
+                if (mounted) {
+                  showFriendlyMessage(context, 'Your account has been deleted.');
+                }
+              } catch (e) {
+                if (mounted) {
+                  showFriendlyMessage(context, AuthService.getFriendlyErrorMessage(e));
+                }
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade800,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Delete Permanently'),
           ),
         ],
       ),
@@ -260,7 +317,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     Icon(Icons.cancel_outlined, color: AppColors.heart),
                     SizedBox(width: 8),
-                    Text('Withdraw Request?'),
+                    Expanded(
+                      child: Text('Withdraw Request?'),
+                    ),
                   ],
                 ),
                 content: const Text(
@@ -444,6 +503,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   : AppColors.textMuted,
                               onTap: _openRentalRequestsSheet,
                             ),
+                            if (widget.firebaseUser != null) ...[
+                              const Divider(height: 1, indent: 56, color: AppColors.border),
+                              _buildActivityTile(
+                                icon: Icons.forum_outlined,
+                                title: 'Messages',
+                                subtitle: 'Real-time chat with landlords and tenants',
+                                badgeText: 'Chat',
+                                badgeColor: AppColors.lightGreen,
+                                badgeTextColor: AppColors.darkGreen,
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ConversationsScreen(
+                                        currentUser: widget.firebaseUser,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                            if (widget.firebaseUser != null)
+                              StreamBuilder<bool>(
+                                stream: _service.streamIsAdmin(widget.firebaseUser!.uid),
+                                builder: (context, adminSnapshot) {
+                                  if (adminSnapshot.data != true) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Divider(height: 1, indent: 56, color: AppColors.border),
+                                      _buildActivityTile(
+                                        key: const ValueKey('admin_dashboard_tile'),
+                                        icon: Icons.admin_panel_settings_outlined,
+                                        title: 'Admin Dashboard',
+                                        subtitle: 'Review and moderate pending property submissions',
+                                        badgeText: 'Admin',
+                                        badgeColor: AppColors.lightGreen,
+                                        badgeTextColor: AppColors.darkGreen,
+                                        onTap: () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => AdminDashboardScreen(
+                                                currentUser: widget.firebaseUser,
+                                                firestoreService: _service,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                           ],
                         ),
                       ),
@@ -591,9 +704,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             _buildInfoTile(
                               icon: Icons.policy_outlined,
                               title: 'Privacy Policy & Terms',
-                              subtitle: 'Official legal documents placeholder',
+                              subtitle: 'Data protection, Firebase, & terms of service',
                               onTap: _showPrivacyTermsDialog,
                             ),
+                            if (widget.firebaseUser != null) ...[
+                              const Divider(height: 1, indent: 56, color: AppColors.border),
+                              _buildInfoTile(
+                                icon: Icons.delete_forever_outlined,
+                                iconColor: Colors.red.shade700,
+                                iconBgColor: Colors.red.shade50,
+                                title: 'Delete Account',
+                                titleColor: Colors.red.shade700,
+                                subtitle: 'Permanently remove your account and data',
+                                onTap: _confirmDeleteAccount,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -625,6 +750,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildActivityTile({
+    Key? key,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -633,52 +759,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required Color badgeTextColor,
     required VoidCallback onTap,
   }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        width: 38,
-        height: 38,
-        decoration: const BoxDecoration(
-          color: AppColors.lightGreen,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: AppColors.green, size: 20),
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textDark,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: badgeColor,
-              borderRadius: BorderRadius.circular(10),
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: const BoxDecoration(
+                color: AppColors.lightGreen,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: AppColors.green, size: 20),
             ),
-            child: Text(
-              badgeText,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w800,
-                color: badgeTextColor,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
-        ],
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: badgeColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: badgeTextColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
+              ],
+            ),
+          ],
+        ),
       ),
-      onTap: onTap,
     );
   }
 
@@ -687,32 +831,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    Color? iconColor,
+    Color? iconBgColor,
+    Color? titleColor,
   }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        width: 38,
-        height: 38,
-        decoration: const BoxDecoration(
-          color: AppColors.lightGreen,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: AppColors.green, size: 20),
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textDark,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-      ),
-      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
+    return InkWell(
       onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: iconBgColor ?? AppColors.lightGreen,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: iconColor ?? AppColors.green, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: titleColor ?? AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
+          ],
+        ),
+      ),
     );
   }
 
@@ -794,12 +958,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             children: [
                               Icon(Icons.verified, size: 12, color: AppColors.green),
                               SizedBox(width: 4),
-                              Text(
-                                'Firebase Account',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.darkGreen,
+                              Flexible(
+                                child: Text(
+                                  'Firebase Account',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.darkGreen,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -889,44 +1057,91 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 16),
 
           // Actions: Edit Profile & Sign Out
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _openEditProfileSheet,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.darkGreen,
-                    side: const BorderSide(color: AppColors.green),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 320;
+              if (isNarrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _openEditProfileSheet,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkGreen,
+                        side: const BorderSide(color: AppColors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.edit_outlined, size: 15),
+                      label: const Text(
+                        'Edit Profile',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _confirmSignOut,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red.shade700,
+                        side: BorderSide(color: Colors.red.shade300),
+                        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.logout, size: 15),
+                      label: const Text(
+                        'Sign Out',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _openEditProfileSheet,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkGreen,
+                        side: const BorderSide(color: AppColors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.edit_outlined, size: 15),
+                      label: const Text(
+                        'Edit Profile',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                  icon: const Icon(Icons.edit_outlined, size: 15),
-                  label: const Text(
-                    'Edit Profile Details',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: _confirmSignOut,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                      side: BorderSide(color: Colors.red.shade300),
+                      padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.logout, size: 15),
+                    label: const Text(
+                      'Sign Out',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                onPressed: _confirmSignOut,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red.shade700,
-                  side: BorderSide(color: Colors.red.shade300),
-                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                icon: const Icon(Icons.logout, size: 15),
-                label: const Text(
-                  'Sign Out',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -994,46 +1209,95 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
           const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _openAuthSheet(isRegister: false),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 330;
+              if (isNarrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => _openAuthSheet(isRegister: false),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.login_rounded, size: 18),
+                      label: const Text(
+                        'Sign In',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _openAuthSheet(isRegister: true),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkGreen,
+                        side: const BorderSide(color: AppColors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.person_add_alt_outlined, size: 18),
+                      label: const Text(
+                        'Create Account',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _openAuthSheet(isRegister: false),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.login_rounded, size: 18),
+                      label: const Text(
+                        'Sign In',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                  icon: const Icon(Icons.login_rounded, size: 18),
-                  label: const Text(
-                    'Sign In',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _openAuthSheet(isRegister: true),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.darkGreen,
-                    side: const BorderSide(color: AppColors.green),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openAuthSheet(isRegister: true),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkGreen,
+                        side: const BorderSide(color: AppColors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.person_add_alt_outlined, size: 18),
+                      label: const Text(
+                        'Create Account',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                  icon: const Icon(Icons.person_add_alt_outlined, size: 18),
-                  label: const Text(
-                    'Create Account',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 14),
           Container(
@@ -1374,13 +1638,13 @@ class RentalRequestsSheet extends StatelessWidget {
     String label;
 
     if (req.isAccepted) {
-      bg = const Color(0xFFE3F4EA);
-      fg = const Color(0xFF0E5E3B);
+      bg = AppColors.successSurface;
+      fg = AppColors.success;
       icon = Icons.check_circle_outline;
       label = 'Accepted';
     } else if (req.isRejected) {
-      bg = const Color(0xFFFFE3E3);
-      fg = const Color(0xFFC53030);
+      bg = AppColors.errorSurface;
+      fg = AppColors.error;
       icon = Icons.highlight_off_outlined;
       label = 'Declined';
     } else if (req.isCancelled) {
@@ -1622,10 +1886,15 @@ class RentalRequestsSheet extends StatelessWidget {
                                   ),
                                 ),
                                 const Text(' / mo', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                                const Spacer(),
-                                Text(
-                                  'Move-in: ${req.preferredMoveIn}',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textDark),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Move-in: ${req.preferredMoveIn}',
+                                    textAlign: TextAlign.end,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textDark),
+                                  ),
                                 ),
                               ],
                             ),
@@ -1652,13 +1921,13 @@ class RentalRequestsSheet extends StatelessWidget {
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
                                   color: req.isAccepted
-                                      ? const Color(0xFFE3F4EA).withAlpha(160)
-                                      : const Color(0xFFFFE3E3).withAlpha(160),
+                                      ? AppColors.successSurface
+                                      : AppColors.errorSurface,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
                                     color: req.isAccepted
-                                        ? const Color(0xFF0E5E3B).withAlpha(60)
-                                        : const Color(0xFFC53030).withAlpha(60),
+                                        ? AppColors.success.withAlpha(60)
+                                        : AppColors.error.withAlpha(60),
                                   ),
                                 ),
                                 child: Row(
@@ -1667,7 +1936,7 @@ class RentalRequestsSheet extends StatelessWidget {
                                     Icon(
                                       req.isAccepted ? Icons.check_circle_outline : Icons.info_outline,
                                       size: 14,
-                                      color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                      color: req.isAccepted ? AppColors.success : AppColors.error,
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
@@ -1676,7 +1945,7 @@ class RentalRequestsSheet extends StatelessWidget {
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontStyle: FontStyle.italic,
-                                          color: req.isAccepted ? const Color(0xFF0E5E3B) : const Color(0xFFC53030),
+                                          color: req.isAccepted ? AppColors.success : AppColors.error,
                                         ),
                                       ),
                                     ),
@@ -1689,23 +1958,79 @@ class RentalRequestsSheet extends StatelessWidget {
                                 propertyId: req.property.id,
                                 landlordNote: req.landlordNote,
                               ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () async {
+                                    final ownerId = req.ownerId;
+                                    final tenantId = req.tenantId;
+                                    if (ownerId == null || ownerId.isEmpty || tenantId == null || tenantId.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Cannot start chat: missing participant info.')),
+                                      );
+                                      return;
+                                    }
+                                    try {
+                                      final convId = await FirestoreService.instance.getOrCreateConversation(
+                                        propertyId: req.property.id,
+                                        propertyTitle: req.property.title,
+                                        ownerId: ownerId,
+                                        tenantId: tenantId,
+                                        tenantName: req.renterName,
+                                      );
+                                      if (context.mounted) {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => ChatScreen(
+                                              conversation: Conversation(
+                                                id: convId,
+                                                requestId: convId,
+                                                propertyId: req.property.id,
+                                                propertyTitle: req.property.title,
+                                                ownerId: ownerId,
+                                                tenantId: tenantId,
+                                                tenantName: req.renterName,
+                                                createdAt: DateTime.now(),
+                                                updatedAt: DateTime.now(),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Failed to open chat: $e')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                                  label: const Text('Chat with Landlord'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppColors.green,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ),
+                              ),
                             ] else if (req.isPending) ...[
                               Container(
                                 margin: const EdgeInsets.only(top: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFFFF9E6),
+                                  color: AppColors.amberLight,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFB7791F).withAlpha(60)),
+                                  border: Border.all(color: AppColors.amber.withAlpha(60)),
                                 ),
                                 child: const Row(
                                   children: [
-                                    Icon(Icons.lock_clock_rounded, size: 14, color: Color(0xFFB7791F)),
+                                    Icon(Icons.lock_clock_rounded, size: 14, color: AppColors.amber),
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
                                         'Landlord contact details will be revealed here once accepted.',
-                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF7A4F00)),
+                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.amber),
                                       ),
                                     ),
                                   ],
@@ -1716,18 +2041,18 @@ class RentalRequestsSheet extends StatelessWidget {
                                 margin: const EdgeInsets.only(top: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFFFEAEA),
+                                  color: AppColors.errorSurface,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFC53030).withAlpha(60)),
+                                  border: Border.all(color: AppColors.error.withAlpha(60)),
                                 ),
                                 child: const Row(
                                   children: [
-                                    Icon(Icons.cancel_outlined, size: 14, color: Color(0xFFC53030)),
+                                    Icon(Icons.cancel_outlined, size: 14, color: AppColors.error),
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
                                         'Request declined. Landlord contact details remain private.',
-                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF8B1E1E)),
+                                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.error),
                                       ),
                                     ),
                                   ],
@@ -1760,10 +2085,15 @@ class RentalRequestsSheet extends StatelessWidget {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  'Submitted ${_formatDate(req.requestedAt)}',
-                                  style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                                Expanded(
+                                  child: Text(
+                                    'Submitted ${_formatDate(req.requestedAt)}',
+                                    style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
                                 if (req.isPending)
                                   TextButton(
                                     onPressed: () => onCancelRequest(req.id),
@@ -1847,16 +2177,16 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
               margin: const EdgeInsets.only(top: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF7ED),
+                color: AppColors.amberLight,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFF97316).withAlpha(80)),
+                border: Border.all(color: AppColors.amber.withAlpha(80)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.shield_outlined, color: Color(0xFFEA580C), size: 18),
+                      const Icon(Icons.shield_outlined, color: AppColors.amber, size: 18),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
@@ -1864,7 +2194,7 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF9A3412),
+                            color: AppColors.textDark,
                           ),
                         ),
                       ),
@@ -1873,7 +2203,7 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
                         icon: const Icon(Icons.refresh, size: 15),
                         label: const Text('Retry', style: TextStyle(fontSize: 12)),
                         style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFC2410C),
+                          foregroundColor: AppColors.amber,
                           visualDensity: VisualDensity.compact,
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         ),
@@ -1904,7 +2234,7 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
               margin: const EdgeInsets.only(top: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF4F9F6),
+                color: AppColors.background,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.green.withAlpha(60)),
               ),
@@ -1929,14 +2259,14 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
               margin: const EdgeInsets.only(top: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFE3F4EA),
+                color: AppColors.lightGreen,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF0E5E3B).withAlpha(60)),
+                border: Border.all(color: AppColors.darkGreen.withAlpha(60)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_circle_rounded, color: Color(0xFF0E5E3B), size: 20),
+                  const Icon(Icons.check_circle_rounded, color: AppColors.darkGreen, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -1947,7 +2277,7 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF0E5E3B),
+                            color: AppColors.darkGreen,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -1969,9 +2299,9 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
           margin: const EdgeInsets.only(top: 10),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFF0FAF4),
+            color: AppColors.background,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF0E5E3B).withAlpha(80), width: 1.2),
+            border: Border.all(color: AppColors.border, width: 1.2),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1980,11 +2310,11 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0E5E3B).withAlpha(25),
+                    decoration: const BoxDecoration(
+                      color: AppColors.lightGreen,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.verified_user_rounded, color: Color(0xFF0E5E3B), size: 16),
+                    child: const Icon(Icons.verified_user_rounded, color: AppColors.darkGreen, size: 16),
                   ),
                   const SizedBox(width: 8),
                   const Expanded(
@@ -1993,14 +2323,14 @@ class _LandlordContactCardState extends State<LandlordContactCard> {
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0E5E3B),
+                        color: AppColors.textDark,
                       ),
                     ),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0E5E3B),
+                      color: AppColors.darkGreen,
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text(
@@ -2203,15 +2533,16 @@ class HelpSupportSheet extends StatelessWidget {
               children: [
                 const Icon(Icons.help_outline, color: AppColors.green),
                 const SizedBox(width: 10),
-                const Text(
-                  'Help & Support',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
+                const Expanded(
+                  child: Text(
+                    'Help & Support',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.of(context).pop(),
@@ -2306,6 +2637,9 @@ class AboutBashaLagbeSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
@@ -2314,75 +2648,77 @@ class AboutBashaLagbeSheet extends StatelessWidget {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: AppColors.lightGreen,
-                  shape: BoxShape.circle,
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: AppColors.lightGreen,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.home_work, color: AppColors.green, size: 24),
                 ),
-                child: const Icon(Icons.home_work, color: AppColors.green, size: 24),
-              ),
-              const SizedBox(width: 12),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'BashaLagbe',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'BashaLagbe',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                      ),
+                      Text(
+                        'Version 1.0.0',
+                        style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      ),
+                    ],
                   ),
-                  Text(
-                    'Version 1.0.0',
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'About the Project',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'BashaLagbe is an Android-first rental house discovery app designed for Bangladesh. It connects tenants with verified rental apartments, bachelor rooms, and shared mess seats without wasting money on middleman fees and unnecessary physical visits.',
-            style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.45),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Technology Stack',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '• Flutter SDK with Material 3 Design\n• Responsive layout for Mobile & Web (Google Chrome)\n• Modular local state architecture\n• Backend & Firebase integration scheduled for future milestones',
-            style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.45),
-          ),
-          const SizedBox(height: 20),
-        ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'About the Project',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'BashaLagbe is an Android-first rental house discovery app designed for Bangladesh. It connects tenants with verified rental apartments, bachelor rooms, and shared mess seats without wasting money on middleman fees and unnecessary physical visits.',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.45),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Technology Stack',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '• Flutter SDK with Material 3 Design\n• Google Firebase Authentication & Cloud Firestore\n• Cloudinary Cloud Media Services\n• Responsive layout for Mobile & Web (Google Chrome)',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.45),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -2398,6 +2734,9 @@ class PrivacyTermsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
@@ -2406,73 +2745,136 @@ class PrivacyTermsSheet extends StatelessWidget {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Icon(Icons.policy_outlined, color: AppColors.green),
-              const SizedBox(width: 10),
-              const Text(
-                'Privacy Policy & Terms',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.amberLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.amber.withAlpha(90)),
             ),
-            child: const Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 16),
+            Row(
               children: [
-                Icon(Icons.gavel, color: AppColors.amber, size: 20),
-                SizedBox(width: 10),
-                Expanded(
+                const Icon(Icons.policy_outlined, color: AppColors.green),
+                const SizedBox(width: 10),
+                const Expanded(
                   child: Text(
-                    'Official Legal Documents Notice: Formal Terms of Service and Privacy Policy agreements are currently being drafted for the official Google Play release and are not yet available.',
-                    style: TextStyle(fontSize: 12.5, height: 1.4, color: AppColors.textDark),
+                    'Privacy Policy & Terms',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.lightGreen,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.green.withAlpha(90)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.verified_user_outlined, color: AppColors.green, size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'BashaLagbe is committed to protecting your privacy and providing a secure platform for finding and listing rental homes across Bangladesh.',
+                      style: TextStyle(fontSize: 12.5, height: 1.4, color: AppColors.textDark),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSection(
+              title: '1. Service Overview',
+              content:
+                  'BashaLagbe connects prospective tenants with property owners and landlords in Bangladesh. We provide digital listings, verified property attributes, secure rental request workflows, and private real-time messaging between matched parties.',
+            ),
+            _buildSection(
+              title: '2. Data Collection & Authentication',
+              content:
+                  'We use Google Firebase Authentication for account management. When you register or sign in, we process your email address, display name, and authentication tokens. Password credentials are encrypted and stored exclusively by Google Firebase and are never accessible to BashaLagbe administrators.',
+            ),
+            _buildSection(
+              title: '3. Cloud Storage & Media Services',
+              content:
+                  'Property listings, rental inquiries, user profiles, and chat conversations are stored securely in Google Cloud Firestore (project: bashalagbe-f9595). Property photographs uploaded by landlords are processed, optimized, and hosted via Cloudinary media delivery services under secure CDN delivery.',
+            ),
+            _buildSection(
+              title: '4. Contact Privacy & Tenant Protection',
+              content:
+                  'Landlord direct phone numbers and contact details are stored in an isolated, access-controlled database subcollection. They are never published publicly. Only authenticated tenants whose rental requests have been explicitly accepted by the property owner are granted access to landlord contact information.',
+            ),
+            _buildSection(
+              title: '5. User Data Rights & Account Deletion',
+              content:
+                  'You retain full control over your personal data. You may edit your profile at any time. You may also permanently delete your account and associated profile data directly within the app using the "Delete Account" button in your profile settings. Upon deletion, your account and profile records are erased from our authentication and database systems.',
+            ),
+            _buildSection(
+              title: '6. Prohibited Content & Listing Integrity',
+              content:
+                  'Users agree not to submit fraudulent, misleading, or unauthorized property listings, spam, abusive messages, or harmful material. BashaLagbe moderators reserve the right to review, reject, or remove any listing or suspend accounts violating these standards.',
+            ),
+            _buildSection(
+              title: '7. Disclaimer of Liability',
+              content:
+                  'While BashaLagbe performs administrative moderation on listings, users are advised to exercise ordinary due diligence before executing tenancy contracts or transferring rental deposits. BashaLagbe is not a party to rental agreements formed between landlords and tenants.',
+            ),
+            const SizedBox(height: 16),
+            const Center(
+              child: Text(
+                'Last updated: October 2026 • Version 1.0.0',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _buildSection({required String title, required String content}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
           ),
-          const SizedBox(height: 14),
-          const Text(
-            'Privacy Guarantee',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark),
+          const SizedBox(height: 4),
+          Text(
+            content,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppColors.textMuted,
+              height: 1.45,
+            ),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'In this milestone preview, all profile details, saved properties, posted listings, and rental inquiries are stored strictly on your local device. No personal information or tracking telemetry is transmitted to external servers.',
-            style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.45),
-          ),
-          const SizedBox(height: 20),
         ],
       ),
     );
