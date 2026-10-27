@@ -1347,6 +1347,7 @@ const processPendingUserCleanupTasksScheduled = functions && functions.pubsub ? 
 
 module.exports = {
   onUserDeleted,
+  processPendingUserCleanupTasksScheduled,
   createUploadSignature,
   evaluateMediaCleanup,
   processMediaCleanupTask,
