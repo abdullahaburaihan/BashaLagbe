@@ -3,7 +3,7 @@
   "description": "Firebase Cloud Functions for BashaLagbe Backend Security & Cloudinary Lifecycle",
   "version": "1.0.0",
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "main": "index.js",
   "scripts": {

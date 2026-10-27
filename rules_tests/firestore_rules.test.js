@@ -839,10 +839,22 @@ describe('Firestore Security Rules: Property Listings (/properties/{propertyId})
   // ---------------------------------------------------------------------------
   // Stage 1: Admin Authorization & Moderation
   // ---------------------------------------------------------------------------
-  it('allows authenticated user to read admin document in /admins', async () => {
+  it('allows authorized admin in /admins to read admin document in /admins', async () => {
+    await seedAdmin('admin_bob');
+    const db = testEnv.authenticatedContext('admin_bob').firestore();
+    await assertSucceeds(getDoc(doc(db, 'admins', 'admin_bob')));
+  });
+
+  it('denies non-admin authenticated user from reading admin document in /admins', async () => {
     await seedAdmin('admin_bob');
     const db = testEnv.authenticatedContext('any_user').firestore();
-    await assertSucceeds(getDoc(doc(db, 'admins', 'admin_bob')));
+    await assertFails(getDoc(doc(db, 'admins', 'admin_bob')));
+  });
+
+  it('denies unauthenticated user from reading admin document in /admins', async () => {
+    await seedAdmin('admin_bob');
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, 'admins', 'admin_bob')));
   });
 
   it('allows authorized admin in /admins to read another user pending property', async () => {
@@ -2849,9 +2861,9 @@ describe('Firestore Security Rules: Landlord Contact Info (/properties/{property
   });
 
   describe('Media Cleanup Tasks Security Rules (/media_cleanup_tasks/{taskId})', () => {
-    it('allows property owner to create cleanup task for their own property assets', async () => {
+    it('denies property owner from creating cleanup task for their own property assets directly from client', async () => {
       const dbOwner = testEnv.authenticatedContext('landlord_1').firestore();
-      await assertSucceeds(
+      await assertFails(
         setDoc(doc(dbOwner, 'media_cleanup_tasks', 'task_owner_valid'), {
           ownerId: 'landlord_1',
           propertyId: 'prop_123',
